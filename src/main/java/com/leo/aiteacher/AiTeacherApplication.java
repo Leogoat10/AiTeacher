@@ -30,5 +30,6 @@ public class AiTeacherApplication {
         source.registerCorsConfiguration("/**", config);
 
         return new CorsFilter(source);
+
     }
 }
