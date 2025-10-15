@@ -73,6 +73,7 @@ const logout = async () => {
     const res = await apiClient.post('/login/logout')
     if (res.status === 200) {
       sessionStorage.removeItem('currentUser')
+      sessionStorage.removeItem('userRole')
       window.dispatchEvent(new CustomEvent('user-changed'))
       ElMessage.success('已成功登出')
       router.push('/')

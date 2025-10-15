@@ -36,6 +36,7 @@ const handleLogin = async () => {
       // 尝试从后端返回中取姓名，回退到输入的用户名
       const name = (response.data && (response.data.userName || response.data.name)) || username.value;
       sessionStorage.setItem('currentUser', name);
+      sessionStorage.setItem('userRole', 'teacher');
       // 通知同页组件更新（storage 事件只在不同窗口触发）
       window.dispatchEvent(new CustomEvent('user-changed'));
       ElMessage.success('登录成功')

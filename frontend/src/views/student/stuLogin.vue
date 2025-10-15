@@ -35,6 +35,7 @@ const handleLogin = async () => {
     if (response.status === 200) {
       const name = (response.data && (response.data.userName || response.data.name)) || username.value;
       sessionStorage.setItem('currentUser', name);
+      sessionStorage.setItem('userRole', 'student');
       window.dispatchEvent(new CustomEvent('user-changed'));
       ElMessage.success('登录成功')
       router.push('/StudentInfo')

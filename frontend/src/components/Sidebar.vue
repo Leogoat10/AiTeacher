@@ -39,22 +39,39 @@
   let running = false
   async function detectRole() {
     if (running) return
+    // 如果侧边栏不可见，不执行角色检测
+    if (!visible.value) {
+      return
+    }
     running = true
     try {
+      // 先从 sessionStorage 获取角色信息，避免不必要的请求
+      const storedRole = sessionStorage.getItem('userRole')
+      if (storedRole === 'teacher' || storedRole === 'student') {
+        role.value = storedRole
+        running = false
+        return
+      }
+
+      // 如果没有存储的角色信息，则通过请求检测
       const teacherResp = await axios.get('/api/Info/teacherInfo', { withCredentials: true, validateStatus: () => true })
       if (teacherResp.status === 200) {
         role.value = 'teacher'
+        sessionStorage.setItem('userRole', 'teacher')
         return
       }
 
       const studentResp = await axios.get('/api/Info/studentInfo', { withCredentials: true, validateStatus: () => true })
       if (studentResp.status === 200) {
         role.value = 'student'
+        sessionStorage.setItem('userRole', 'student')
       } else {
         role.value = 'guest'
+        sessionStorage.removeItem('userRole')
       }
     } catch (e) {
       role.value = 'guest'
+      sessionStorage.removeItem('userRole')
     } finally {
       setTimeout(() => { running = false }, 200)
     }
