@@ -26,7 +26,7 @@
 
   const studentItems = [
     { label: '学生信息', path: '/studentInfo', icon: '👤' },
-    { label: '题目通知', path: '/studentNotifications', icon: '📬' },
+    { label: '我的题目', path: '/studentAssignments', icon: '📚' },
   ]
 
   const items = computed(() => (role.value === 'student' ? studentItems : teacherItems))

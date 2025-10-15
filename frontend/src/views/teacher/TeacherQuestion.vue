@@ -412,6 +412,121 @@ const createAndDownloadWord = (content: string) => {
 
   ElMessage.success('导出成功')
 }
+
+// 发送题目相关
+const showSendDialog = ref(false)
+const teacherCourses = ref<Array<{courseCode: string, courseName: string}>>([])
+const sendForm = ref({
+  courseCode: '',
+  title: ''
+})
+const sendingAssignment = ref(false)
+
+// 获取教师课程列表
+const fetchTeacherCourses = async () => {
+  try {
+    const res = await apiClient.get('/course/teacherCourse')
+    if (res.data) {
+      teacherCourses.value = res.data
+    }
+  } catch (err: any) {
+    console.error('获取课程列表失败:', err)
+    ElMessage.error('获取课程列表失败')
+  }
+}
+
+// 打开发送题目对话框
+const openSendDialog = async () => {
+  // 检查是否有选中的消息
+  if (selectedMessages.value.size === 0) {
+    ElMessage.warning('请先选择要发送的题目')
+    return
+  }
+
+  sendForm.value.courseCode = ''
+  sendForm.value.title = ''
+  await fetchTeacherCourses()
+  showSendDialog.value = true
+}
+
+// 发送题目到课程 - 发送所有选中的题目
+const sendAssignmentToCourse = async () => {
+  if (!sendForm.value.courseCode) {
+    ElMessage.warning('请选择课程')
+    return
+  }
+  if (!sendForm.value.title.trim()) {
+    ElMessage.warning('请输入题目标题')
+    return
+  }
+
+  // 获取选中的AI消息
+  const selectedAIMessages = chatHistory.value.filter(
+    msg => msg.role === 'ai' && selectedMessages.value.has(msg.id)
+  )
+
+  if (selectedAIMessages.length === 0) {
+    ElMessage.warning('没有选中的题目可发送')
+    return
+  }
+
+  sendingAssignment.value = true
+  let successCount = 0
+  let failCount = 0
+  let totalStudents = 0
+
+  try {
+    // 为每个选中的消息发送题目
+    for (let i = 0; i < selectedAIMessages.length; i++) {
+      const msg = selectedAIMessages[i]
+      try {
+        // 使用rawContent（Markdown原文）而不是HTML内容
+        const content = msg.rawContent || msg.content
+        const titleWithIndex = selectedAIMessages.length > 1 
+          ? `${sendForm.value.title} (${i + 1})`
+          : sendForm.value.title
+
+        const res = await apiClient.post('/assignment/sendToCourse', {
+          content: content,
+          courseCode: sendForm.value.courseCode,
+          title: titleWithIndex
+        })
+
+        if (res.data.success) {
+          successCount++
+          totalStudents = res.data.sentCount || 0
+        } else {
+          failCount++
+        }
+      } catch (err) {
+        failCount++
+        console.error('发送单个题目失败:', err)
+      }
+    }
+
+    if (successCount > 0) {
+      ElMessage.success(`成功发送 ${successCount} 个题目给 ${totalStudents} 名学生！`)
+      showSendDialog.value = false
+      // 清空选择
+      selectedMessages.value.clear()
+    }
+    
+    if (failCount > 0) {
+      ElMessage.warning(`有 ${failCount} 个题目发送失败`)
+    }
+
+  } catch (err: any) {
+    console.error('发送题目失败:', err)
+    if (err.response?.status === 401) {
+      ElMessage.error('未登录或会话已过期，请先登录')
+      router.push('/')
+    } else {
+      ElMessage.error('发送失败: ' + (err.response?.data?.message || '未知错误'))
+    }
+  } finally {
+    sendingAssignment.value = false
+  }
+}
 </script>
 
 <template>
@@ -427,6 +542,14 @@ const createAndDownloadWord = (content: string) => {
           :disabled="chatHistory.filter(msg => msg.role === 'ai').length === 0"
         >
           {{ isAllSelected ? '取消全选' : '全选' }}
+        </el-button>
+        <el-button
+          size="small"
+          @click="openSendDialog"
+          type="warning"
+          :disabled="!hasSelectedMessages"
+        >
+          📤 发送给学生
         </el-button>
         <el-button
           size="small"
@@ -626,6 +749,51 @@ const createAndDownloadWord = (content: string) => {
         新建对话
       </el-button>
     </span>
+    </template>
+  </el-dialog>
+
+  <!-- 发送题目对话框 -->
+  <el-dialog
+    v-model="showSendDialog"
+    title="发送题目给学生"
+    width="500px"
+    :close-on-click-modal="false"
+  >
+    <el-form :model="sendForm" label-width="100px">
+      <el-form-item label="选择课程">
+        <el-select
+          v-model="sendForm.courseCode"
+          placeholder="请选择课程"
+          style="width: 100%"
+        >
+          <el-option
+            v-for="course in teacherCourses"
+            :key="course.courseCode"
+            :label="course.courseName"
+            :value="course.courseCode"
+          />
+        </el-select>
+      </el-form-item>
+      
+      <el-form-item label="题目标题">
+        <el-input
+          v-model="sendForm.title"
+          placeholder="例如：第一章练习题"
+        />
+      </el-form-item>
+    </el-form>
+
+    <template #footer>
+      <span class="dialog-footer">
+        <el-button @click="showSendDialog = false">取消</el-button>
+        <el-button
+          type="primary"
+          @click="sendAssignmentToCourse"
+          :loading="sendingAssignment"
+        >
+          发送
+        </el-button>
+      </span>
     </template>
   </el-dialog>
 
