@@ -1,15 +1,29 @@
 <template>
   <header v-if="visible" class="topbar" @click.stop>
-    <div class="left" @click="goHome">ai智能教师</div>
+    <div class="left">
+      <!-- 新增：汉堡菜单按钮 -->
+      <button class="hamburger-btn" @click.stop="toggleSidebar" aria-label="Toggle sidebar">
+        <span class="hamburger-icon">☰</span>
+      </button>
+      <div class="brand" @click="goHome">ai智能教师</div>
+    </div>
     <div class="right">
       <button class="menu-btn" @click.stop="toggle">
-        {{ currentUser }}
+        <span class="user-name">{{ currentUser }}</span>
         <span class="caret" :class="{ open }">▾</span>
       </button>
-      <div v-if="open" class="dropdown">
-        <button class="dropdown-item" @click="goToInfo">用户信息</button>
-        <button class="dropdown-item danger" @click="logout">登出</button>
-      </div>
+      <transition name="dropdown-fade">
+        <div v-if="open" class="dropdown" @click.stop>
+          <button class="dropdown-item" @click="goToInfo">
+            <span class="dropdown-icon">👤</span>
+            用户信息
+          </button>
+          <button class="dropdown-item danger" @click="logout">
+            <span class="dropdown-icon">🚪</span>
+            登出
+          </button>
+        </div>
+      </transition>
     </div>
   </header>
 </template>
@@ -24,7 +38,7 @@ import { ElMessage } from "element-plus"
 const route = useRoute()
 const router = useRouter()
 const open = ref(false)
-const currentUser = ref('用户') // 默认显示
+const currentUser = ref('用户')
 
 const visible = computed(() => {
   const p = route.path || ''
@@ -33,6 +47,10 @@ const visible = computed(() => {
 
 function toggle() {
   open.value = !open.value
+}
+
+function toggleSidebar() {
+  window.dispatchEvent(new CustomEvent('toggle-sidebar'))
 }
 
 function goHome() {
@@ -54,7 +72,6 @@ const logout = async () => {
   try {
     const res = await apiClient.post('/login/logout')
     if (res.status === 200) {
-      // 清除当前用户并通知更新
       sessionStorage.removeItem('currentUser')
       window.dispatchEvent(new CustomEvent('user-changed'))
       ElMessage.success('已成功登出')
@@ -81,12 +98,11 @@ function onClickOutside(e: Event) {
 
 onMounted(() => {
   window.addEventListener('click', onClickOutside)
-  // 跨窗口 storage 事件
   window.addEventListener('storage', updateUserFromStorage)
-  // 同窗口自定义事件，用于登录后立即更新
   window.addEventListener('user-changed', updateUserFromStorage)
   updateUserFromStorage()
 })
+
 onBeforeUnmount(() => {
   window.removeEventListener('click', onClickOutside)
   window.removeEventListener('storage', updateUserFromStorage)
@@ -105,56 +121,197 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: space-between;
     padding: 0 1rem;
-    background: linear-gradient(90deg,#2b6cb0,#4a90e2);
+    background: linear-gradient(90deg, #2b6cb0, #4a90e2);
     color: #fff;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.08);
-    z-index: 1000; /* 提高优先级，覆盖侧边栏 */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    z-index: 1001;
+    backdrop-filter: blur(8px);
   }
+
   .left {
-    font-weight: 700;
-    font-size: 1.05rem;
-    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
   }
+
+  .hamburger-btn {
+    display: none;
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 6px;
+    transition: background 0.2s ease;
+    line-height: 1;
+  }
+
+  .hamburger-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .hamburger-btn:active {
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  .hamburger-icon {
+    display: block;
+    font-size: 1.5rem;
+  }
+
+  .brand {
+    font-weight: 700;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: opacity 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .brand:hover {
+    opacity: 0.9;
+  }
+
   .right {
     position: relative;
     display: flex;
     align-items: center;
     gap: 0.5rem;
   }
+
   .menu-btn {
-    background: transparent;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.1);
     border: 0;
     color: #fff;
-    padding: 0.4rem 0.6rem;
-    border-radius: 6px;
+    padding: 0.5rem 0.8rem;
+    border-radius: 8px;
     cursor: pointer;
     font-weight: 600;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(4px);
   }
-  .menu-btn:hover { background: rgba(255,255,255,0.06); }
-  .caret { margin-left: 0.4rem; transition: transform 0.15s; display:inline-block; }
-  .caret.open { transform: rotate(180deg); }
+
+  .menu-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateY(-1px);
+  }
+
+  .user-name {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .caret {
+    transition: transform 0.2s ease;
+    display: inline-block;
+    font-size: 0.9rem;
+  }
+
+  .caret.open {
+    transform: rotate(180deg);
+  }
 
   .dropdown {
     position: absolute;
     right: 0;
-    top: calc(100% + 8px);
+    top: calc(100% + 12px);
     background: #fff;
     color: #222;
-    border-radius: 8px;
-    box-shadow: 0 6px 18px rgba(13,38,59,0.12);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
     overflow: hidden;
-    min-width: 150px;
+    min-width: 180px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
   }
+
   .dropdown-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     width: 100%;
-    padding: 0.65rem 0.9rem;
+    padding: 0.75rem 1rem;
     text-align: left;
     background: transparent;
     border: none;
     cursor: pointer;
     font-weight: 600;
+    transition: background 0.15s ease;
+    color: #374151;
   }
-  .dropdown-item:hover { background: #f3f6fb; }
-  .dropdown-item.danger { color: #c53030; }
+
+  .dropdown-item:hover {
+    background: #f3f6fb;
+  }
+
+  .dropdown-item.danger {
+    color: #dc2626;
+  }
+
+  .dropdown-item.danger:hover {
+    background: #fef2f2;
+  }
+
+  .dropdown-icon {
+    font-size: 1.1rem;
+  }
+
+  /* 下拉菜单动画 */
+  .dropdown-fade-enter-active,
+  .dropdown-fade-leave-active {
+    transition: all 0.2s ease;
+  }
+
+  .dropdown-fade-enter-from,
+  .dropdown-fade-leave-to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  /* 响应式设计 */
+  @media (max-width: 768px) {
+    .hamburger-btn {
+      display: block;
+    }
+
+    .topbar {
+      padding: 0 0.75rem;
+    }
+
+    .brand {
+      font-size: 1rem;
+    }
+
+    .user-name {
+      max-width: 100px;
+    }
+
+    .menu-btn {
+      padding: 0.4rem 0.6rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .brand {
+      font-size: 0.9rem;
+    }
+
+    .user-name {
+      display: none;
+    }
+
+    .menu-btn {
+      padding: 0.4rem;
+      min-width: 40px;
+      justify-content: center;
+    }
+
+    .dropdown {
+      min-width: 150px;
+    }
+  }
 </style>

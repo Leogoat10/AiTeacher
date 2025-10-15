@@ -204,6 +204,18 @@ const createAndDownloadWord = (content: string) => {
 
   ElMessage.success('导出成功')
 }
+
+// 测试服务连接
+const testConnection = async () => {
+  try {
+    const res = await apiClient.get('/teacher/health')
+    if (res.status === 200) {
+      ElMessage.success('服务连接正常')
+    }
+  } catch (err) {
+    ElMessage.error('服务连接失败，请检查后端是否启动')
+  }
+}
 </script>
 
 <template>
@@ -317,7 +329,7 @@ const createAndDownloadWord = (content: string) => {
       <!-- 右侧AI对话区域 -->
       <div class="chat-container">
         <div
-          v-for="(chat, index) in chatHistory"
+          v-for="chat in chatHistory"
           :key="chat.id"
           class="message"
           :class="chat.role"
