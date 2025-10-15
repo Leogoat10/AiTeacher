@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.leo.aiteacher.pojo.mapper.TeacherMapper">
+
+    <select id="getTeacherByName" resultType="com.leo.aiteacher.pojo.dto.TeacherDto"
+            parameterType="java.lang.String">
+        SELECT * FROM teachers WHERE teacher_name= #{teacherName}
+    </select>
+
+    <select id="getTeacherById" resultType="com.leo.aiteacher.pojo.dto.TeacherDto">
+        SELECT * FROM teachers WHERE teacher_id = #{teacherId}
+    </select>
+
+    <insert id="insertTeacher" parameterType="com.leo.aiteacher.pojo.dto.TeacherDto">
+        INSERT INTO teachers (teacher_id, teacher_name, password)
+        VALUES (#{teacherId}, #{teacherName}, #{password})
+    </insert>
+
+</mapper>

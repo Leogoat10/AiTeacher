@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.leo.aiteacher.pojo.mapper.MessageMapper">
+    <insert id="insertMessage" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO messages (question, answer, conversation_id)
+        VALUES (#{question}, #{answer}, #{conversationId})
+    </insert>
+
+    <select id="getMessagesByConversationId" parameterType="int" resultType="com.leo.aiteacher.pojo.dto.MessageDto">
+        SELECT id, conversation_id, question, answer, created_at
+        FROM messages
+        WHERE conversation_id = #{conversationId}
+        ORDER BY created_at ASC
+    </select>
+
+</mapper>
+    

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.leo.aiteacher.pojo.mapper.CourseMapper">
+
+    <select id="getCoursesByTeacherId" resultType="com.leo.aiteacher.pojo.dto.CourseDto"
+            parameterType="java.lang.Integer">
+        SELECT id, course_name AS courseName, course_code AS courseCode, teacher_id AS teacherId
+        FROM courses
+        WHERE teacher_id = #{teacherId}
+    </select>
+
+
+    <insert id="addCourse" parameterType="com.leo.aiteacher.pojo.dto.CourseDto">
+        INSERT INTO courses (course_code, course_name, teacher_id)
+        VALUES (#{courseCode}, #{courseName}, #{teacherId})
+    </insert>
+
+    <delete id="removeCourse" parameterType="map">
+        DELETE FROM courses
+        WHERE course_code = #{courseCode} AND teacher_id = #{teacherId}
+    </delete>
+
+    <resultMap id="CourseMap" type="com.leo.aiteacher.pojo.dto.CourseDto">
+        <result column="id" property="id"/>
+        <result column="course_name" property="courseName"/>
+        <result column="course_code" property="courseCode"/>
+        <result column="teacher_id" property="teacherId"/>
+    </resultMap>
+
+    <select id="findByCourseCode" parameterType="string" resultMap="CourseMap">
+        SELECT id, course_name, course_code, teacher_id
+        FROM courses
+        WHERE course_code = #{courseCode}
+        LIMIT 1
+    </select>
+
+    <select id="countByCourseCodeAndTeacherId" resultType="int">
+        SELECT COUNT(1)
+        FROM courses
+        WHERE course_code = #{courseCode}
+          AND teacher_id = #{teacherId}
+    </select>
+</mapper>

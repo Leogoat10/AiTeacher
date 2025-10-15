@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+    <mapper namespace="com.leo.aiteacher.pojo.mapper.StudentMapper">
+
+        <select id="getStudentByName" resultType="com.leo.aiteacher.pojo.dto.StuDto"
+                parameterType="java.lang.String">
+            SELECT * FROM students WHERE student_name = #{studentName}
+        </select>
+
+        <select id="getStudentById" resultType="com.leo.aiteacher.pojo.dto.StuDto" parameterType="int">
+            SELECT * FROM students WHERE student_id = #{studentId}
+        </select>
+
+        <insert id="insertStudent" parameterType="com.leo.aiteacher.pojo.dto.StuDto">
+            INSERT INTO students (student_id, student_name, password)
+            VALUES (#{studentId}, #{studentName}, #{password})
+        </insert>
+
+    <select id="listByCourseCode" resultType="com.leo.aiteacher.pojo.dto.StuDto">
+        SELECT
+            s.student_id   AS studentId,
+            s.student_name AS studentName
+        FROM course_students cs
+                 JOIN students s ON cs.student_id = s.student_id
+        WHERE cs.course_code = #{courseCode}
+        ORDER BY s.student_id
+    </select>
+
+    </mapper>

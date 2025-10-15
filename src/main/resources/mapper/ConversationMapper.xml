@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.leo.aiteacher.pojo.mapper.ConversationMapper">
+    <insert id="insertConversation" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO conversations (teacher_id, title)
+        VALUES (#{teacherId}, #{title})
+    </insert>
+
+    <select id="getConversationById" resultType="com.leo.aiteacher.pojo.dto.ConversationDto">
+        SELECT * FROM conversations WHERE id = #{actualConversationId}
+    </select>
+
+    <select id="getConversationsByTeacherId" parameterType="int" resultType="com.leo.aiteacher.pojo.dto.ConversationDto">
+        SELECT id, teacher_id, title, created_at
+        FROM conversations
+        WHERE teacher_id = #{teacherId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="getConversationsByTeacherIdWithLatestMessage" parameterType="int" resultType="com.leo.aiteacher.pojo.dto.ConversationDto">
+        SELECT
+            c.*,
+            COALESCE(m.latest_updated_at, c.created_at) as latestMessageUpdatedAt
+        FROM conversations c
+        LEFT JOIN (
+            SELECT
+                conversation_id,
+                MAX(updated_at) as latest_updated_at
+            FROM messages
+            GROUP BY conversation_id
+        ) m ON c.id = m.conversation_id
+        WHERE c.teacher_id = #{teacherId}
+        ORDER BY COALESCE(m.latest_updated_at, c.created_at) DESC
+    </select>
+
+    <delete id="deleteConversationById" parameterType="int">
+        DELETE FROM conversations WHERE id = #{conversationId}
+    </delete>
+
+
+</mapper>
