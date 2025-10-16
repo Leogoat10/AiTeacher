@@ -133,5 +133,32 @@ CREATE INDEX idx_student_assignments_student
 CREATE INDEX idx_student_assignments_assignment
     ON aiteacher.student_assignments (assignment_id);
 
+-- 学生答题表：记录学生的答题情况、AI评分和弱点分析
+CREATE TABLE IF NOT EXISTS aiteacher.student_answers
+(
+    id              INT AUTO_INCREMENT
+        PRIMARY KEY,
+    assignment_id   INT                                 NOT NULL COMMENT '题目ID',
+    student_id      INT                                 NOT NULL COMMENT '学生ID',
+    student_answer  TEXT                                NOT NULL COMMENT '学生的答案',
+    ai_score        VARCHAR(100)                        NULL COMMENT 'AI评分',
+    ai_analysis     TEXT                                NULL COMMENT 'AI弱点分析',
+    submitted_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP NULL COMMENT '提交时间',
+    CONSTRAINT uq_student_answer
+        UNIQUE (assignment_id, student_id),
+    CONSTRAINT fk_answer_assignment
+        FOREIGN KEY (assignment_id) REFERENCES aiteacher.assignments (id)
+            ON DELETE CASCADE,
+    CONSTRAINT fk_answer_student
+        FOREIGN KEY (student_id) REFERENCES aiteacher.students (student_id)
+            ON DELETE CASCADE
+);
+
+CREATE INDEX idx_student_answers_student
+    ON aiteacher.student_answers (student_id);
+
+CREATE INDEX idx_student_answers_assignment
+    ON aiteacher.student_answers (assignment_id);
+
 
 
