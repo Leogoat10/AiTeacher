@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
@@ -54,6 +54,43 @@ const renderMarkdown = (content: string): string => {
   if (!content) return ''
   const rawHtml = marked(content) as string
   return DOMPurify.sanitize(rawHtml)
+}
+
+// 分离题目内容和答案解析
+const splitContentAndAnswer = (content: string): { question: string, answer: string } => {
+  if (!content) return { question: '', answer: '' }
+  
+  // 尝试多种分隔符来识别答案部分
+  const separators = [
+    '答案与解析',
+    '答案和解析', 
+    '参考答案',
+    '答案：',
+    '答案:',
+    '解析：',
+    '解析:',
+    '【答案】',
+    '【解析】'
+  ]
+  
+  let splitIndex = -1
+  
+  for (const sep of separators) {
+    const index = content.indexOf(sep)
+    if (index !== -1 && (splitIndex === -1 || index < splitIndex)) {
+      splitIndex = index
+    }
+  }
+  
+  if (splitIndex !== -1) {
+    return {
+      question: content.substring(0, splitIndex).trim(),
+      answer: content.substring(splitIndex).trim()
+    }
+  }
+  
+  // 如果没有找到分隔符，返回全部内容作为题目
+  return { question: content, answer: '' }
 }
 
 // 检查是否已答题
@@ -228,8 +265,9 @@ onMounted(() => {
         </div>
 
         <div class="assignment-preview">
-          <div class="content-preview" v-html="renderMarkdown(assignment.content.substring(0, 150))"></div>
-          <span v-if="assignment.content.length > 150">...</span>
+          <!-- 预览时只显示题目部分，不显示答案 -->
+          <div class="content-preview" v-html="renderMarkdown(splitContentAndAnswer(assignment.content).question.substring(0, 150))"></div>
+          <span v-if="splitContentAndAnswer(assignment.content).question.length > 150">...</span>
         </div>
 
         <div class="card-footer">
@@ -293,7 +331,21 @@ onMounted(() => {
 
         <div class="detail-content">
           <h4>📝 题目内容：</h4>
-          <div class="content-html markdown-body" v-html="renderMarkdown(selectedAssignment.content)"></div>
+          <!-- 未答题时只显示题目部分，已答题后显示完整内容 -->
+          <div v-if="!isAnswered(selectedAssignment)" class="content-html markdown-body" v-html="renderMarkdown(splitContentAndAnswer(selectedAssignment.content).question)"></div>
+          <div v-else class="content-html markdown-body" v-html="renderMarkdown(selectedAssignment.content)"></div>
+        </div>
+
+        <!-- 答案与解析提示（未提交时显示） -->
+        <div v-if="!isAnswered(selectedAssignment) && splitContentAndAnswer(selectedAssignment.content).answer" class="answer-section-preview">
+          <el-alert
+            title="提示"
+            type="warning"
+            :closable="false"
+            show-icon
+          >
+            <p>📌 此题目包含答案与解析，提交答案后即可查看</p>
+          </el-alert>
         </div>
 
         <!-- 已答题内容展示 -->
@@ -317,9 +369,7 @@ onMounted(() => {
 
             <div class="analysis-display">
               <h4>💡 AI 分析</h4>
-              <div class="analysis-text">
-                <pre>{{ selectedAssignment.ai_analysis }}</pre>
-              </div>
+              <div class="analysis-text markdown-body" v-html="renderMarkdown(selectedAssignment.ai_analysis || '')"></div>
             </div>
           </div>
         </div>
@@ -350,7 +400,7 @@ onMounted(() => {
       <div v-if="selectedAssignment" class="answer-container">
         <div class="question-section">
           <h4>📝 题目内容：</h4>
-          <div class="question-content markdown-body" v-html="renderMarkdown(selectedAssignment.content)"></div>
+          <div class="question-content markdown-body" v-html="renderMarkdown(splitContentAndAnswer(selectedAssignment.content).question)"></div>
         </div>
 
         <el-divider />
@@ -419,9 +469,7 @@ onMounted(() => {
 
               <div class="analysis-section">
                 <h3>💡 详细分析</h3>
-                <div class="analysis-content">
-                  <pre>{{ evaluationResult.analysis }}</pre>
-                </div>
+                <div class="analysis-content markdown-body" v-html="renderMarkdown(evaluationResult.analysis)"></div>
               </div>
             </div>
           </template>
@@ -575,6 +623,19 @@ onMounted(() => {
 .detail-content h4 {
   margin-bottom: 10px;
   color: #303133;
+}
+
+.answer-section-preview {
+  margin-top: 20px;
+}
+
+.answer-section-preview :deep(.el-alert) {
+  border-radius: 8px;
+}
+
+.answer-section-preview :deep(.el-alert__description) p {
+  margin: 0;
+  font-size: 14px;
 }
 
 .content-html {
@@ -737,14 +798,7 @@ onMounted(() => {
   padding: 15px;
   border-radius: 8px;
   border-left: 4px solid #409EFF;
-}
-
-.analysis-text pre {
-  white-space: pre-wrap;
-  word-wrap: break-word;
   line-height: 1.8;
-  font-family: inherit;
-  margin: 0;
   color: #606266;
 }
 
@@ -845,14 +899,7 @@ onMounted(() => {
   padding: 20px;
   border-radius: 8px;
   border-left: 4px solid #409EFF;
-}
-
-.analysis-content pre {
-  white-space: pre-wrap;
-  word-wrap: break-word;
   line-height: 1.8;
-  font-family: inherit;
-  margin: 0;
   color: #606266;
 }
 

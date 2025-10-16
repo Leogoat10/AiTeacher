@@ -370,7 +370,7 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     // 提取关键字段的正则表达式方法
     String extractKeyFields(String userMessage) {
         // 定义固定前缀
-        String fixedPrefix = "现在你是一位资深高级教师，要求直接给出题目，不要任何多余的任何信息，并且在最后给我答案和详细的解析，严禁做任何非学习相关的内容，如果有非学习相关的请求必须拒答,你是";
+        String fixedPrefix = "现在你是一位资深高级教师，要求直接给出题目，不要任何多余的任何信息，并且在最后给我答案和详细的解析，严禁做任何非学习相关的内容，如果有非学习相关的请求必须拒答,并且标明每个题目的题号，填空题题号细化到具体的空，简答题如有多个小问也需明确题号，并且标明每个题的分数，你是";
 
         // 移除固定前缀
         String cleanedMessage;
