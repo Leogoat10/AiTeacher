@@ -264,11 +264,11 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="assignment-preview">
-          <!-- 预览时只显示题目部分，不显示答案 -->
+<!--        <div class="assignment-preview">
+          &lt;!&ndash; 预览时只显示题目部分，不显示答案 &ndash;&gt;
           <div class="content-preview" v-html="renderMarkdown(splitContentAndAnswer(assignment.content).question.substring(0, 150))"></div>
           <span v-if="splitContentAndAnswer(assignment.content).question.length > 150">...</span>
-        </div>
+        </div>-->
 
         <div class="card-footer">
           <el-button type="primary" size="small" @click="viewDetail(assignment)">
@@ -578,13 +578,13 @@ onMounted(() => {
   font-size: 15px;
 }
 
-.assignment-preview {
+/*.assignment-preview {
   background-color: #f5f7fa;
   padding: 15px;
   border-radius: 4px;
   margin-bottom: 15px;
   min-height: 80px;
-}
+}*/
 
 .content-preview {
   color: #606266;
