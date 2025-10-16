@@ -635,15 +635,11 @@ const sendAssignmentToCourse = async () => {
           <el-icon><Clock /></el-icon>
           历史对话
         </el-button>
-        <el-button size="small" @click="createNewConversation" :loading="creatingConversation">
+          <el-button size="small" @click="createNewConversation" :loading="creatingConversation">
           <el-icon><ChatDotRound /></el-icon>
           新建对话
         </el-button>
-        <el-button
-            size="small"
-            @click="clearForm"
-            type="warning"
-        >
+          <el-button size="small" @click="clearForm" type="warning">
           <el-icon><i class="fas fa-trash-alt"></i></el-icon>
           清空表单
         </el-button>
@@ -842,6 +838,7 @@ height: 0;
 
 .form-container {
 width: 350px;
+overflow: auto;
 padding: 20px;
 border: 1px solid #eaeaea;
 border-radius: 8px;
