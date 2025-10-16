@@ -232,14 +232,7 @@ const send = async () => {
     return
   }
 
-  // 构造完整的消息内容
-  let fullMessage = `${subject.value}，${difficulty.value}，${questionType.value}，${questionCount.value}`
-
-  if (customMessage.value.trim()) {
-    fullMessage += `，${customMessage.value}`
-  }
-
-  // 添加用户消息
+  // 添加用户消息（显示用）
   let userDisplayMessage = `${subject.value} ${difficulty.value} ${questionType.value}`
   if (questionCount.value) {
     userDisplayMessage += ` (${questionCount.value}题)`
@@ -258,10 +251,15 @@ const send = async () => {
   loading.value = true
 
   try {
+    // 发送表单数据到后端（与plan.vue保持一致）
     const res = await apiClient.post('/teacher/question',
         {
-          message: fullMessage,// 传递完整消息
-          conversationId: currentConversationId.value // 传递当前会话ID
+          subject: subject.value,
+          difficulty: difficulty.value,
+          questionType: questionType.value,
+          questionCount: questionCount.value,
+          customMessage: customMessage.value || null,
+          conversationId: currentConversationId.value
         })
 
     if (res.data.success) {

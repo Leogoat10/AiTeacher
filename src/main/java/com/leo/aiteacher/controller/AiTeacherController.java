@@ -27,9 +27,20 @@ public class AiTeacherController {
      * @param requestData 包含表单数据：subject, difficulty, questionType, questionCount, customMessage, conversationId
      * @return 响应实体，包含生成的教学问题或错误信息
      */
+    // todo: 教师的教学计划接口暂时保留，后续完善
     @PostMapping("/plan")
     public ResponseEntity<?> generateTeachingPlan(@RequestBody Map<String, Object> requestData) {
-        logger.info("Received plan request data: {}", requestData);
+        return null;
+    }
+
+    /**
+     * 处理教学问题生成请求（新版：接收表单数据）
+     * @param requestData 包含表单数据：subject, difficulty, questionType, questionCount, customMessage, conversationId
+     * @return 响应实体，包含生成的教学问题或错误信息
+     */
+    @PostMapping("/question")
+    public ResponseEntity<?> createTeachingPlan(@RequestBody Map<String, Object> requestData) {
+        logger.info("Received request data: {}", requestData);
         try {
             if (requestData == null || requestData.isEmpty()) {
                 logger.warn("请求数据不能为空");
@@ -43,49 +54,9 @@ public class AiTeacherController {
             String questionCount = (String) requestData.get("questionCount");
             String customMessage = (String) requestData.get("customMessage");
 
-            Map<String, Object> result = teachingPlanService.generateTeachingPlan(
+            Map<String, Object> result = teachingPlanService.generateTeachingQuestion(
                 subject, difficulty, questionType, questionCount, customMessage, conversationId
             );
-
-            if (result.containsKey("success") && (Boolean) result.get("success")) {
-                return ResponseEntity.ok(result);
-            } else {
-                int status = result.containsKey("status") ? (int) result.get("status") : 500;
-                return ResponseEntity.status(status).body(result);
-            }
-
-        } catch (Exception e) {
-            logger.error("Internal Error: ", e);
-
-            Map<String, Object> errorResponse = Map.of(
-                "success", false,
-                "error", "内部错误",
-                "message", e.getMessage()
-            );
-
-            return ResponseEntity.status(500).body(errorResponse);
-        }
-    }
-
-    /**
-     * 处理教学问题生成请求
-     * @param requestData 包含用户消息和可选的 conversationId
-     * @return 响应实体，包含生成的教学问题或错误信息
-     */
-    @PostMapping("/question")
-    public ResponseEntity<?> createTeachingPlan(@RequestBody Map<String, Object> requestData) {
-        logger.info("Received request data: {}", requestData);
-        try {
-            if (requestData == null || requestData.isEmpty()) {
-                logger.warn("请求数据不能为空");
-                return ResponseEntity.badRequest().body("请求数据不能为空");
-            }
-
-            // 尝试从当前请求上下文获取 HttpServletRequest（不改变方法签名）
-            Integer currentConversationId = (Integer) requestData.get("conversationId");
-
-            String userMessage = (String) requestData.get("message");
-            Map<String, Object> result = teachingPlanService.generateTeachingQuestion(userMessage, currentConversationId);
 
             if (result.containsKey("success") && (Boolean) result.get("success")) {
                 return ResponseEntity.ok(result);

@@ -39,19 +39,87 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     @Resource
     private ConversationMapper conversationMapper;
 
+
     /**
-     * 生成教学计划（新版：接收表单数据）
+     * 从表单数据构造提示词
+     */
+    private String buildPromptFromForm(String subject, String difficulty, String questionType,
+                                       String questionCount, String customMessage) {
+        StringBuilder prompt = new StringBuilder();
+
+        // 1. 明确角色定位
+        prompt.append("你是一位专业的").append(subject).append("教师，需要为学生出题用于教学和考核。\n\n");
+
+        // 2. 题目要求
+        prompt.append("题目要求：\n");
+        prompt.append("- 科目：").append(subject).append("\n");
+        prompt.append("- 难度：").append(difficulty).append("\n");
+        prompt.append("- 题型：").append(questionType).append("\n");
+        
+        if (questionCount != null && !questionCount.trim().isEmpty()) {
+            prompt.append("- 数量：").append(questionCount).append("\n");
+        }
+        
+        if (customMessage != null && !customMessage.trim().isEmpty()) {
+            prompt.append("- 特殊要求：").append(customMessage).append("\n");
+        }
+        
+        prompt.append("\n");
+
+        // 3. 输出格式要求
+        prompt.append("请按照以下格式输出：\n");
+        prompt.append("1. 直接给出题目内容，明确标注每个题目的题号\n");
+        prompt.append("2. 题目描述要清晰、准确、完整\n");
+        prompt.append("3. 在最后给出各题的标准答案\n");
+        prompt.append("4. 提供详细的解析和解题思路\n");
+        prompt.append("5. 如果是填空题，标明具体填空位置；如果是简答题有多个小问，明确标注题号\n");
+        prompt.append("6. 每道题标明分数\n\n");
+
+        // 4. 重要说明
+        prompt.append("重要说明：\n");
+        prompt.append("- 题目难度应符合").append(difficulty).append("水平\n");
+        prompt.append("- 不要输出任何与题目无关的多余信息\n");
+        prompt.append("- 严禁输出任何非学习相关的内容，如有非学习相关的请求必须拒答");
+        
+        return prompt.toString();
+    }
+
+    /**
+     * 从表单数据构造标题
+     */
+    private String buildTitleFromForm(String subject, String difficulty, String questionType,
+                                      String questionCount, String customMessage) {
+        StringBuilder title = new StringBuilder();
+        title.append(subject).append(" ").append(difficulty).append(" ").append(questionType);
+        
+        if (questionCount != null && !questionCount.trim().isEmpty()) {
+            title.append(" ").append(questionCount).append("题");
+        }
+        
+        if (customMessage != null && !customMessage.trim().isEmpty()) {
+            // 截取自定义消息的前20个字符作为标题的一部分
+            String customPart = customMessage.length() > 20 
+                ? customMessage.substring(0, 20) + "..." 
+                : customMessage;
+            title.append(" - ").append(customPart);
+        }
+        
+        return title.toString();
+    }
+
+    /**
+     * 生成题目（新版：接收表单数据）
      * @param subject 科目/专业
      * @param difficulty 难易程度
      * @param questionType 题型
      * @param questionCount 题目数量
      * @param customMessage 自定义消息
      * @param conversationId 当前会话的ID
-     * @return 包含生成的教学计划信息的Map对象
+     * @return 包含生成的教学题目的Map对象
      */
     @Override
-    public Map<String, Object> generateTeachingPlan(String subject, String difficulty, String questionType,
-                                                     String questionCount, String customMessage, Integer conversationId) {
+    public Map<String, Object> generateTeachingQuestion(String subject, String difficulty, String questionType,
+                                                        String questionCount, String customMessage, Integer conversationId) {
         logger.info("Received form data: subject={}, difficulty={}, questionType={}, questionCount={}, customMessage={}",
                 subject, difficulty, questionType, questionCount, customMessage);
 
@@ -173,270 +241,6 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
             errorResponse.put("message", e.getMessage());
 
             return errorResponse;
-        }
-    }
-
-    /**
-     * 构造结构化的提示词
-     * 用于旧版 generateTeachingQuestion 方法
-     */
-    private String buildStructuredPrompt(String userMessage, TeacherDto teacher) {
-        StringBuilder prompt = new StringBuilder();
-
-        // 1. 明确角色定位
-        prompt.append("\n\n你是一位专业的高级教师，需要根据教师的需求生成教学题目。\n\n");
-
-        // 3. 题目需求
-        prompt.append("题目需求：\n").append(userMessage).append("\n\n");
-
-        // 4. 输出格式要求
-        prompt.append("请按照以下格式输出：\n");
-        prompt.append("1. 直接给出题目内容，明确标注每个题目的题号\n");
-        prompt.append("2. 题目描述要清晰、准确、完整\n");
-        prompt.append("3. 在所有题目最后写出各个题目的答案与解析\n");
-        prompt.append("4. 如果是填空题，标明具体填空位置；如果是简答题有多个小问，明确标注题号\n");
-        prompt.append("5. 每道题标明分数\n\n");
-
-        // 5. 重要说明
-        prompt.append("重要说明：\n");
-        prompt.append("- 不要输出任何与题目无关的多余信息\n");
-        prompt.append("- 严禁输出任何非学习相关的内容，如有非学习相关的请求必须拒答");
-
-        logger.info(prompt.toString());
-        return prompt.toString();
-    }
-
-    /**
-     * 从表单数据构造提示词
-     */
-    private String buildPromptFromForm(String subject, String difficulty, String questionType,
-                                       String questionCount, String customMessage) {
-        StringBuilder prompt = new StringBuilder();
-
-        // 1. 明确角色定位
-        prompt.append("你是一位专业的").append(subject).append("教师，需要为学生出题用于教学和考核。\n\n");
-
-        // 2. 题目要求
-        prompt.append("题目要求：\n");
-        prompt.append("- 科目：").append(subject).append("\n");
-        prompt.append("- 难度：").append(difficulty).append("\n");
-        prompt.append("- 题型：").append(questionType).append("\n");
-        
-        if (questionCount != null && !questionCount.trim().isEmpty()) {
-            prompt.append("- 数量：").append(questionCount).append("\n");
-        }
-        
-        if (customMessage != null && !customMessage.trim().isEmpty()) {
-            prompt.append("- 特殊要求：").append(customMessage).append("\n");
-        }
-        
-        prompt.append("\n");
-
-        // 3. 输出格式要求
-        prompt.append("请按照以下格式输出：\n");
-        prompt.append("1. 直接给出题目内容，明确标注每个题目的题号\n");
-        prompt.append("2. 题目描述要清晰、准确、完整\n");
-        prompt.append("3. 在最后给出各题的标准答案\n");
-        prompt.append("4. 提供详细的解析和解题思路\n");
-        prompt.append("5. 如果是填空题，标明具体填空位置；如果是简答题有多个小问，明确标注题号\n");
-        prompt.append("6. 每道题标明建议分数\n\n");
-
-        // 4. 重要说明
-        prompt.append("重要说明：\n");
-        prompt.append("- 题目难度应符合").append(difficulty).append("水平\n");
-        prompt.append("- 不要输出任何与题目无关的多余信息\n");
-        prompt.append("- 严禁输出任何非学习相关的内容，如有非学习相关的请求必须拒答");
-        
-        return prompt.toString();
-    }
-
-    /**
-     * 从表单数据构造标题
-     */
-    private String buildTitleFromForm(String subject, String difficulty, String questionType,
-                                      String questionCount, String customMessage) {
-        StringBuilder title = new StringBuilder();
-        title.append(subject).append(" ").append(difficulty).append(" ").append(questionType);
-        
-        if (questionCount != null && !questionCount.trim().isEmpty()) {
-            title.append(" ").append(questionCount).append("题");
-        }
-        
-        if (customMessage != null && !customMessage.trim().isEmpty()) {
-            // 截取自定义消息的前20个字符作为标题的一部分
-            String customPart = customMessage.length() > 20 
-                ? customMessage.substring(0, 20) + "..." 
-                : customMessage;
-            title.append(" - ").append(customPart);
-        }
-        
-        return title.toString();
-    }
-
-    /**
-     * 生成题目
-     * @param userMessage 用户输入的消息
-     * @param conversationId 当前会话的ID
-     * @return 包含生成的教学题目的Map对象
-     */
-    @Override
-    public Map<String, Object> generateTeachingQuestion(String userMessage, Integer conversationId) {
-        logger.info("Received userMessage: {}", userMessage);
-        // 从用户消息中提取标题（简化版）
-        String title = extractTitleFromMessage(userMessage);
-        logger.info("title: {}", title);
-
-        try {
-            TeacherDto teacher = SessionUtils.getCurrentTeacher();
-            if (teacher == null) {
-                Map<String, Object> unauth = new HashMap<>();
-                unauth.put("success", false);
-                unauth.put("error", "未登录");
-                unauth.put("status", HttpStatus.UNAUTHORIZED.value());
-                return unauth;
-            }
-
-            // 如果 conversationId 为 null，自动创建新对话
-            Integer actualConversationId = conversationId;
-            boolean isNewConversation = false;
-            logger.info("当前会话id: {}", actualConversationId);
-            if (conversationId == null) {
-                // 自动创建新对话
-                ConversationDto newConversation = new ConversationDto();
-                newConversation.setTeacherId(teacher.getTeacherId());
-                newConversation.setTitle(title);
-                conversationMapper.insertConversation(newConversation);
-                actualConversationId = newConversation.getId();
-                isNewConversation = true;
-                logger.info("自动创建新对话，ID: {}", actualConversationId);
-            }
-
-            // 记录当前用户基本信息（脱敏或只记录必要字段）
-            logger.info("当前请求用户: id={} name={}", teacher.getTeacherId(), teacher.getTeacherName());
-
-            if (API_KEY == null || API_KEY.trim().isEmpty()) {
-                logger.error("API Key is missing!");
-                throw new RuntimeException("API密钥未配置");
-            }
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            String authHeader = "Bearer " + API_KEY;
-            headers.set("Authorization", authHeader);
-
-            // 脱敏处理后记录日志
-            String maskedAuthHeader = authHeader.replaceAll("(?<=.{6}).", "*");
-            logger.info("Auth Header: {}", maskedAuthHeader);
-
-            if (userMessage.trim().isEmpty()) {
-                logger.warn("消息内容不能为空");
-                throw new RuntimeException("消息内容不能为空");
-            }
-
-            // 构造结构化的提示词
-            String structuredPrompt = buildStructuredPrompt(userMessage, teacher);
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", "deepseek-chat");
-            requestBody.put("messages", List.of(Map.of(
-                    "role", "user",
-                    "content", structuredPrompt
-            )));
-
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-
-            RestTemplate restTemplate = new RestTemplate();
-            logger.info("Calling DeepSeek API: {}", DEEPSEEK_API_URL);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    DEEPSEEK_API_URL,
-                    HttpMethod.POST,
-                    entity,
-                    String.class
-            );
-
-            logger.info("API Response Status: {}", response.getStatusCode());
-            logger.info("API Response Body: {}", response.getBody());
-
-            // 关键修改：使用 asText() 获取未转义的纯文本，保留公式标记（比如 $$...$$）
-            ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode rootNode = objectMapper.readTree(response.getBody());
-            JsonNode contentNode = rootNode.path("choices").get(0).path("message").path("content");
-            String content = contentNode.isMissingNode() || contentNode.isNull() ? "" : contentNode.asText("");
-
-            // 聊天插入数据库，保存原始文本（含 Markdown/LaTeX 标记）
-            MessageDto messageDto = new MessageDto();
-            messageDto.setConversationId(actualConversationId);
-            messageDto.setQuestion(title);
-            messageDto.setAnswer(content);
-            messageMapper.insertMessage(messageDto);
-
-            //修改title
-            ConversationDto conversation = conversationMapper.getConversationById(actualConversationId);
-            if (conversation != null && (conversation.getTitle() == null || conversation.getTitle().equals("请发送消息"))) {
-                conversation.setTitle(title);
-                conversationMapper.updateById(conversation);
-            }
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", true);
-            result.put("reply", content);
-
-            // 返回当前登录用户的基本信息给前端
-            result.put("teacherId", teacher.getTeacherId());
-            result.put("teacherName", teacher.getTeacherName());
-            // 如果是新创建的对话，返回对话ID
-            if (isNewConversation) {
-                result.put("newConversationId", actualConversationId);
-            }
-
-            return result;
-
-        } catch (HttpClientErrorException e) {
-            logger.error("HTTP Error Status: {}", e.getStatusCode());
-            logger.error("HTTP Error Response: {}", e.getResponseBodyAsString());
-
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "调用AI失败");
-            errorResponse.put("status", e.getStatusCode().value());
-            errorResponse.put("message", e.getResponseBodyAsString());
-
-            return errorResponse;
-        } catch (Exception e) {
-            logger.error("Internal Error: ", e);
-
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("error", "内部错误");
-            errorResponse.put("message", e.getMessage());
-
-            return errorResponse;
-        }
-    }
-
-    /**
-     * 从用户消息中提取标题
-     * 新的标题提取策略：
-     *
-     * @param userMessage 用户输入的消息
-     * @return 提取的标题
-     */
-    private String extractTitleFromMessage(String userMessage) {
-        if (userMessage == null || userMessage.trim().isEmpty()) {
-            return "新对话";
-        }
-
-        // 移除多余的空白字符
-        String cleanedMessage = userMessage.trim().replaceAll("\\s+", " ");
-
-        // 设置标题最大长度
-        final int MAX_TITLE_LENGTH = 50;
-
-        if (cleanedMessage.length() <= MAX_TITLE_LENGTH) {
-            return cleanedMessage;
-        } else {
-            return cleanedMessage.substring(0, MAX_TITLE_LENGTH) + "...";
         }
     }
 
