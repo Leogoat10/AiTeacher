@@ -8,7 +8,7 @@ import com.leo.aiteacher.pojo.dto.MessageDto;
 import com.leo.aiteacher.pojo.dto.TeacherDto;
 import com.leo.aiteacher.pojo.mapper.ConversationMapper;
 import com.leo.aiteacher.pojo.mapper.MessageMapper;
-import com.leo.aiteacher.service.TeachingPlanService;
+import com.leo.aiteacher.service.TeachingPlanQueService;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,9 +23,9 @@ import java.util.Map;
 import com.leo.aiteacher.util.SessionUtils;
 
 @Service
-public class TeachingPlanServiceImpl implements TeachingPlanService {
+public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
 
-    private static final Logger logger = LoggerFactory.getLogger(TeachingPlanServiceImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(TeachingPlanQueServiceImpl.class);
 
     @Value("${deepseek.api.url}")
     private String DEEPSEEK_API_URL;

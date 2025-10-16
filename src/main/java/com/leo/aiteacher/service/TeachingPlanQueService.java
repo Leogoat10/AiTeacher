@@ -4,7 +4,7 @@ package com.leo.aiteacher.service;
 import java.util.List;
 import java.util.Map;
 
-public interface TeachingPlanService {
+public interface TeachingPlanQueService {
     
     /**
      * 生成教学问题（新版：接收表单数据）

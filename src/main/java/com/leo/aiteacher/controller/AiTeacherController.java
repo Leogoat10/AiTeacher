@@ -1,7 +1,7 @@
 // AiTeacherController.java (修改后)
 package com.leo.aiteacher.controller;
 
-import com.leo.aiteacher.service.TeachingPlanService;
+import com.leo.aiteacher.service.TeachingPlanQueService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +20,7 @@ public class AiTeacherController {
     private static final Logger logger = LoggerFactory.getLogger(AiTeacherController.class);
 
     @Autowired
-    private TeachingPlanService teachingPlanService;
+    private TeachingPlanQueService teachingPlanQueService;
 
     /**
      * 处理教学问题生成请求（新版：接收表单数据）
@@ -39,8 +39,8 @@ public class AiTeacherController {
      * @return 响应实体，包含生成的教学问题或错误信息
      */
     @PostMapping("/question")
-    public ResponseEntity<?> createTeachingPlan(@RequestBody Map<String, Object> requestData) {
-        logger.info("Received request data: {}", requestData);
+    public ResponseEntity<?> createTeachingQuestion(@RequestBody Map<String, Object> requestData) {
+        logger.info("接收到的数据: {}", requestData);
         try {
             if (requestData == null || requestData.isEmpty()) {
                 logger.warn("请求数据不能为空");
@@ -54,7 +54,7 @@ public class AiTeacherController {
             String questionCount = (String) requestData.get("questionCount");
             String customMessage = (String) requestData.get("customMessage");
 
-            Map<String, Object> result = teachingPlanService.generateTeachingQuestion(
+            Map<String, Object> result = teachingPlanQueService.generateTeachingQuestion(
                 subject, difficulty, questionType, questionCount, customMessage, conversationId
             );
 
@@ -86,7 +86,7 @@ public class AiTeacherController {
     @PostMapping("/newConversation")
     public ResponseEntity<?> createConversation() {
         try {
-            Map<String, Object> result = teachingPlanService.createConversation();
+            Map<String, Object> result = teachingPlanQueService.createConversation();
 
             if (result.containsKey("success") && (Boolean) result.get("success")) {
                 return ResponseEntity.ok(result);
@@ -112,7 +112,7 @@ public class AiTeacherController {
     @GetMapping("/conversations")
     public ResponseEntity<?> getUserConversations() {
         try {
-            List<Map<String, Object>> conversations = teachingPlanService.getUserConversations();
+            List<Map<String, Object>> conversations = teachingPlanQueService.getUserConversations();
             Map<String, Object> result = Map.of(
                 "success", true,
                 "conversations", conversations
@@ -138,7 +138,7 @@ public class AiTeacherController {
     @GetMapping("/conversation/{conversationId}")
     public ResponseEntity<?> getConversationDetail(@PathVariable Integer conversationId) {
         try {
-            Map<String, Object> result = teachingPlanService.getConversationDetail(conversationId);
+            Map<String, Object> result = teachingPlanQueService.getConversationDetail(conversationId);
 
             if (result.containsKey("success") && (Boolean) result.get("success")) {
                 return ResponseEntity.ok(result);
@@ -172,7 +172,7 @@ public class AiTeacherController {
             }
 
             Integer conversationId = (Integer) requestData.get("conversationId");
-            Map<String, Object> result = teachingPlanService.deleteConversation(conversationId);
+            Map<String, Object> result = teachingPlanQueService.deleteConversation(conversationId);
 
             if (result.containsKey("success") && (Boolean) result.get("success")) {
                 return ResponseEntity.ok(result);
