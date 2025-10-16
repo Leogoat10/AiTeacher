@@ -177,24 +177,75 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     }
 
     /**
-     * 从表单数据构造提示词
+     * 构造结构化的提示词（参考学生答题评分反馈的方式）
+     * 用于旧版 generateTeachingQuestion 方法
+     */
+    private String buildStructuredPrompt(String userMessage, TeacherDto teacher) {
+        StringBuilder prompt = new StringBuilder();
+
+        // 1. 明确角色定位
+        prompt.append("你是一位专业的高级教师，需要根据教师的需求生成教学题目。\n\n");
+
+        // 3. 题目需求
+        prompt.append("题目需求：\n").append(userMessage).append("\n\n");
+
+        // 4. 输出格式要求
+        prompt.append("请按照以下格式输出：\n");
+        prompt.append("1. 直接给出题目内容，明确标注每个题目的题号\n");
+        prompt.append("2. 题目描述要清晰、准确、完整\n");
+        prompt.append("3. 在所有题目最后写出各个题目的答案与解析\n");
+        prompt.append("4. 如果是填空题，标明具体填空位置；如果是简答题有多个小问，明确标注题号\n");
+        prompt.append("5. 每道题标明分数\n\n");
+
+        // 5. 重要说明
+        prompt.append("重要说明：\n");
+        prompt.append("- 不要输出任何与题目无关的多余信息\n");
+        prompt.append("- 严禁输出任何非学习相关的内容，如有非学习相关的请求必须拒答");
+
+        logger.info(prompt.toString());
+        return prompt.toString();
+    }
+
+    /**
+     * 从表单数据构造提示词（参考学生答题评分反馈的方式）
      */
     private String buildPromptFromForm(String subject, String difficulty, String questionType,
                                        String questionCount, String customMessage) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("你是一位资深的").append(subject).append("老师，");
-        prompt.append("请出").append(difficulty).append("的").append(questionType).append("题目");
+
+        // 1. 明确角色定位
+        prompt.append("你是一位专业的").append(subject).append("教师，需要为学生出题用于教学和考核。\n\n");
+
+        // 2. 题目要求
+        prompt.append("题目要求：\n");
+        prompt.append("- 科目：").append(subject).append("\n");
+        prompt.append("- 难度：").append(difficulty).append("\n");
+        prompt.append("- 题型：").append(questionType).append("\n");
         
         if (questionCount != null && !questionCount.trim().isEmpty()) {
-            prompt.append("，共").append(questionCount).append("题");
+            prompt.append("- 数量：").append(questionCount).append("\n");
         }
         
         if (customMessage != null && !customMessage.trim().isEmpty()) {
-            prompt.append("，").append(customMessage);
+            prompt.append("- 特殊要求：").append(customMessage).append("\n");
         }
         
-        prompt.append("。要求：直接给出题目，不要任何多余的信息，并且在最后给出答案和详细的解析。");
-        prompt.append("严禁做任何非学习相关的内容，如果有非学习相关的请求必须拒答。");
+        prompt.append("\n");
+
+        // 3. 输出格式要求
+        prompt.append("请按照以下格式输出：\n");
+        prompt.append("1. 直接给出题目内容，明确标注每个题目的题号\n");
+        prompt.append("2. 题目描述要清晰、准确、完整\n");
+        prompt.append("3. 在最后给出各题的标准答案\n");
+        prompt.append("4. 提供详细的解析和解题思路\n");
+        prompt.append("5. 如果是填空题，标明具体填空位置；如果是简答题有多个小问，明确标注题号\n");
+        prompt.append("6. 每道题标明建议分数\n\n");
+
+        // 4. 重要说明
+        prompt.append("重要说明：\n");
+        prompt.append("- 题目难度应符合").append(difficulty).append("水平\n");
+        prompt.append("- 不要输出任何与题目无关的多余信息\n");
+        prompt.append("- 严禁输出任何非学习相关的内容，如有非学习相关的请求必须拒答");
         
         return prompt.toString();
     }
@@ -223,16 +274,16 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     }
 
     /**
-     * 生成教学计划（旧版：接收完整消息）
+     * 生成题目
      * @param userMessage 用户输入的消息
      * @param conversationId 当前会话的ID
-     * @return 包含生成的教学计划信息的Map对象
+     * @return 包含生成的教学题目的Map对象
      */
     @Override
     public Map<String, Object> generateTeachingQuestion(String userMessage, Integer conversationId) {
         logger.info("Received userMessage: {}", userMessage);
-        // 提取关键字段作为标题
-        String title = extractKeyFields(userMessage);
+        // 从用户消息中提取标题（简化版）
+        String title = extractTitleFromMessage(userMessage);
         logger.info("title: {}", title);
 
         try {
@@ -282,17 +333,14 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
                 throw new RuntimeException("消息内容不能为空");
             }
 
-            // 可以将当前用户信息附加到消息中，便于 AI 返回个性化内容（可选）
-            String enrichedMessage = String.format("教师[%s|%s]：%s",
-                    teacher.getTeacherId() == null ? "" : teacher.getTeacherId(),
-                    teacher.getTeacherName() == null ? "" : teacher.getTeacherName(),
-                    userMessage);
+            // 构造结构化的提示词
+            String structuredPrompt = buildStructuredPrompt(userMessage, teacher);
 
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("model", "deepseek-chat");
             requestBody.put("messages", List.of(Map.of(
                     "role", "user",
-                    "content", enrichedMessage
+                    "content", structuredPrompt
             )));
 
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
@@ -367,48 +415,29 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
         }
     }
 
-    // 提取关键字段的正则表达式方法
-    String extractKeyFields(String userMessage) {
-        // 定义固定前缀
-        String fixedPrefix = "现在你是一位资深高级教师，要求直接给出题目，不要任何多余的任何信息，并且在最后给我答案和详细的解析，严禁做任何非学习相关的内容，如果有非学习相关的请求必须拒答,并且标明每个题目的题号，填空题题号细化到具体的空，简答题如有多个小问也需明确题号，并且标明每个题的分数，你是";
+    /**
+     * 从用户消息中提取标题
+     * 新的标题提取策略：
+     *
+     * @param userMessage 用户输入的消息
+     * @return 提取的标题
+     */
+    private String extractTitleFromMessage(String userMessage) {
+        if (userMessage == null || userMessage.trim().isEmpty()) {
+            return "新对话";
+        }
 
-        // 移除固定前缀
-        String cleanedMessage;
-        if (userMessage.startsWith(fixedPrefix)) {
-            cleanedMessage = userMessage.substring(fixedPrefix.length());
+        // 移除多余的空白字符
+        String cleanedMessage = userMessage.trim().replaceAll("\\s+", " ");
+
+        // 设置标题最大长度
+        final int MAX_TITLE_LENGTH = 50;
+
+        if (cleanedMessage.length() <= MAX_TITLE_LENGTH) {
+            return cleanedMessage;
         } else {
-            cleanedMessage = userMessage;
+            return cleanedMessage.substring(0, MAX_TITLE_LENGTH) + "...";
         }
-
-        String patternWithTopic = "(.*?)老师，出(.*?)的(.*?)题目，共(.*?)，(.*)";
-        String patternWithoutTopic = "(.*?)老师，出(.*?)的(.*?)题目，共(.*)";
-
-        java.util.regex.Pattern regexWithTopic = java.util.regex.Pattern.compile(patternWithTopic);
-        java.util.regex.Pattern regexWithoutTopic = java.util.regex.Pattern.compile(patternWithoutTopic);
-        java.util.regex.Matcher matcherWithTopic = regexWithTopic.matcher(cleanedMessage);
-        java.util.regex.Matcher matcherWithoutTopic = regexWithoutTopic.matcher(cleanedMessage);
-
-        // 优先匹配带主题内容的模式
-        if (matcherWithTopic.find()) {
-            String subject = matcherWithTopic.group(1);      // 学科
-            String difficulty = matcherWithTopic.group(2);   // 难度
-            String questionType = matcherWithTopic.group(3); // 题型
-            String count = matcherWithTopic.group(4);        // 数量
-            String topic = matcherWithTopic.group(5);        // 主题内容
-
-            return String.format("%s %s %s %s %s", subject, difficulty, questionType, count, topic);
-        }
-        // 如果没有找到带主题内容的匹配，则尝试不带主题内容的模式
-        else if (matcherWithoutTopic.find()) {
-            String subject = matcherWithoutTopic.group(1);      // 学科
-            String difficulty = matcherWithoutTopic.group(2);   // 难度
-            String questionType = matcherWithoutTopic.group(3); // 题型
-            String count = matcherWithoutTopic.group(4);        // 数量（这里包含了数量和可能的其他内容）
-
-            return String.format("%s %s %s %s", subject, difficulty, questionType, count);
-        }
-        // 如果不匹配，返回空字符串作为标题
-        return "";
     }
 
     /**

@@ -233,7 +233,7 @@ const send = async () => {
   }
 
   // 构造完整的消息内容
-  let fullMessage = `现在你是一位资深高级教师，要求直接给出题目，不要任何多余的任何信息，并且在最后给我答案和详细的解析，严禁做任何非学习相关的内容，如果有非学习相关的请求必须拒答,并且标明每个题目的题号，填空题题号细化到具体的空，简答题如有多个小问也需明确题号，并且标明每个题的分数，你是${subject.value}老师，出${difficulty.value}的${questionType.value}题目，共${questionCount.value}题`
+  let fullMessage = `${subject.value}，${difficulty.value}，${questionType.value}，${questionCount.value}`
 
   if (customMessage.value.trim()) {
     fullMessage += `，${customMessage.value}`
