@@ -102,8 +102,8 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
         prompt.append("题目内容及标准答案：\n").append(assignment.getContent()).append("\n\n");
         prompt.append("学生的答案：\n").append(studentAnswer).append("\n\n");
         prompt.append("请按照以下格式输出评分和分析：\n");
-        prompt.append("评分：（给出具体分数）\n");
-        prompt.append("分析：（详细分析学生的答题情况，指出优点和不足，给出相关知识点的建议）");
+        prompt.append("评分：（给出具体分数）形式为——得分/总分\n");
+        prompt.append("分析：（详细分析学生的答题情况，指出缺点不足，给出相关知识点的建议，总共不超过100字）");
 
         logger.info(prompt.toString());
         return prompt.toString();

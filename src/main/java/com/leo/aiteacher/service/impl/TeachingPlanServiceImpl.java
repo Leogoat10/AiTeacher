@@ -43,7 +43,7 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     /**
      * 从表单数据构造提示词
      */
-    private String buildPromptFromForm(String subject, String difficulty, String questionType,
+    private String buildPromptFromFormQuestion(String subject, String difficulty, String questionType,
                                        String questionCount, String customMessage) {
         StringBuilder prompt = new StringBuilder();
 
@@ -70,7 +70,7 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
         prompt.append("请按照以下格式输出：\n");
         prompt.append("1. 直接给出题目内容，明确标注每个题目的题号\n");
         prompt.append("2. 题目描述要清晰、准确、完整\n");
-        prompt.append("3. 在最后给出各题的标准答案\n");
+        prompt.append("3. 在最后给出各题的“答案与解析”\n");
         prompt.append("4. 提供详细的解析和解题思路\n");
         prompt.append("5. 如果是填空题，标明具体填空位置；如果是简答题有多个小问，明确标注题号\n");
         prompt.append("6. 每道题标明分数\n\n");
@@ -120,7 +120,7 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     @Override
     public Map<String, Object> generateTeachingQuestion(String subject, String difficulty, String questionType,
                                                         String questionCount, String customMessage, Integer conversationId) {
-        logger.info("Received form data: subject={}, difficulty={}, questionType={}, questionCount={}, customMessage={}",
+        logger.info("表单数据: subject={}, difficulty={}, questionType={}, questionCount={}, customMessage={}",
                 subject, difficulty, questionType, questionCount, customMessage);
 
         try {
@@ -135,11 +135,11 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
 
             // 从表单数据提取标题
             String title = buildTitleFromForm(subject, difficulty, questionType, questionCount, customMessage);
-            logger.info("Generated title: {}", title);
+            logger.info("标题: {}", title);
 
             // 从表单数据构造提示词
-            String promptMessage = buildPromptFromForm(subject, difficulty, questionType, questionCount, customMessage);
-            logger.info("Generated prompt: {}", promptMessage);
+            String promptMessage = buildPromptFromFormQuestion(subject, difficulty, questionType, questionCount, customMessage);
+            logger.info("提示词: {}", promptMessage);
 
             // 如果 conversationId 为 null，自动创建新对话
             Integer actualConversationId = conversationId;
@@ -178,7 +178,6 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
 
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
             RestTemplate restTemplate = new RestTemplate();
-            logger.info("Calling DeepSeek API: {}", DEEPSEEK_API_URL);
 
             ResponseEntity<String> response = restTemplate.exchange(
                     DEEPSEEK_API_URL,
@@ -187,7 +186,7 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
                     String.class
             );
 
-            logger.info("API Response Status: {}", response.getStatusCode());
+            logger.info("API 响应状态: {}", response.getStatusCode());
 
             // 解析AI响应
             ObjectMapper objectMapper = new ObjectMapper();
