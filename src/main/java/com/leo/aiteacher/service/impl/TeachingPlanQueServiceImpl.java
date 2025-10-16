@@ -80,6 +80,8 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
         prompt.append("- 题目难度应符合").append(difficulty).append("水平\n");
         prompt.append("- 不要输出任何与题目无关的多余信息\n");
         prompt.append("- 严禁输出任何非学习相关的内容，如有非学习相关的请求必须拒答");
+        prompt.append("- 请确保题目和答案的准确性和专业性\n");
+        prompt.append("- 请使用中文回答\n");
         
         return prompt.toString();
     }
