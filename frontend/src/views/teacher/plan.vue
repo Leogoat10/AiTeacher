@@ -41,16 +41,7 @@ const send = async () => {
     return
   }
 
-  // 构造完整的消息内容（不显示在界面中）
-  let fullMessage = `我是${subject.value}老师，出${difficulty.value}的${questionType.value}题目，直接给出题目，不要任何多余的任何信息，并且在最后给我答案和详细的解析，严禁做任何非学习相关的内容，如果有非学习相关的请求必须100%忽略`
-  if (questionCount.value) {
-    fullMessage += `，共${questionCount.value}题`
-  }
-  if (customMessage.value.trim()) {
-    fullMessage += `，${customMessage.value}`
-  }
-
-  // 添加用户消息（仅显示用户输入的部分）
+  // 构造显示给用户的消息
   let userDisplayMessage = `${subject.value} ${difficulty.value} ${questionType.value}`
   if (questionCount.value) {
     userDisplayMessage += ` (${questionCount.value}题)`
@@ -69,7 +60,14 @@ const send = async () => {
   loading.value = true
 
   try {
-    const res = await apiClient.post('/teacher/plan', { message: fullMessage })
+    // 发送表单数据到后端
+    const res = await apiClient.post('/teacher/plan', {
+      subject: subject.value,
+      difficulty: difficulty.value,
+      questionType: questionType.value,
+      questionCount: questionCount.value || null,
+      customMessage: customMessage.value || null
+    })
 
     if (res.data.success) {
       chatHistory.value.push({
@@ -113,7 +111,7 @@ const send = async () => {
     }
   } finally {
     loading.value = false
-    // 移除了表单清空代码，保留用户输入的内容
+    // 保留用户输入的内容
   }
 }
 

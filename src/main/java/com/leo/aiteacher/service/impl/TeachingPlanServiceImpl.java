@@ -40,7 +40,190 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     private ConversationMapper conversationMapper;
 
     /**
-     * 生成教学计划
+     * 生成教学计划（新版：接收表单数据）
+     * @param subject 科目/专业
+     * @param difficulty 难易程度
+     * @param questionType 题型
+     * @param questionCount 题目数量
+     * @param customMessage 自定义消息
+     * @param conversationId 当前会话的ID
+     * @return 包含生成的教学计划信息的Map对象
+     */
+    @Override
+    public Map<String, Object> generateTeachingPlan(String subject, String difficulty, String questionType,
+                                                     String questionCount, String customMessage, Integer conversationId) {
+        logger.info("Received form data: subject={}, difficulty={}, questionType={}, questionCount={}, customMessage={}",
+                subject, difficulty, questionType, questionCount, customMessage);
+
+        try {
+            TeacherDto teacher = SessionUtils.getCurrentTeacher();
+            if (teacher == null) {
+                Map<String, Object> unauth = new HashMap<>();
+                unauth.put("success", false);
+                unauth.put("error", "未登录");
+                unauth.put("status", HttpStatus.UNAUTHORIZED.value());
+                return unauth;
+            }
+
+            // 从表单数据提取标题
+            String title = buildTitleFromForm(subject, difficulty, questionType, questionCount, customMessage);
+            logger.info("Generated title: {}", title);
+
+            // 从表单数据构造提示词
+            String promptMessage = buildPromptFromForm(subject, difficulty, questionType, questionCount, customMessage);
+            logger.info("Generated prompt: {}", promptMessage);
+
+            // 如果 conversationId 为 null，自动创建新对话
+            Integer actualConversationId = conversationId;
+            boolean isNewConversation = false;
+            logger.info("当前会话id: {}", actualConversationId);
+            if (conversationId == null) {
+                // 自动创建新对话
+                ConversationDto newConversation = new ConversationDto();
+                newConversation.setTeacherId(teacher.getTeacherId());
+                newConversation.setTitle(title);
+                conversationMapper.insertConversation(newConversation);
+                actualConversationId = newConversation.getId();
+                isNewConversation = true;
+                logger.info("自动创建新对话，ID: {}", actualConversationId);
+            }
+
+            // 记录当前用户基本信息
+            logger.info("当前请求用户: id={} name={}", teacher.getTeacherId(), teacher.getTeacherName());
+
+            if (API_KEY == null || API_KEY.trim().isEmpty()) {
+                logger.error("API Key is missing!");
+                throw new RuntimeException("API密钥未配置");
+            }
+
+            // 调用AI API
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Authorization", "Bearer " + API_KEY);
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("model", "deepseek-chat");
+            requestBody.put("messages", List.of(Map.of(
+                    "role", "user",
+                    "content", promptMessage
+            )));
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+            RestTemplate restTemplate = new RestTemplate();
+            logger.info("Calling DeepSeek API: {}", DEEPSEEK_API_URL);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    DEEPSEEK_API_URL,
+                    HttpMethod.POST,
+                    entity,
+                    String.class
+            );
+
+            logger.info("API Response Status: {}", response.getStatusCode());
+
+            // 解析AI响应
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode rootNode = objectMapper.readTree(response.getBody());
+            JsonNode contentNode = rootNode.path("choices").get(0).path("message").path("content");
+            String content = contentNode.isMissingNode() || contentNode.isNull() ? "" : contentNode.asText("");
+
+            // 保存到数据库
+            MessageDto messageDto = new MessageDto();
+            messageDto.setConversationId(actualConversationId);
+            messageDto.setQuestion(title);
+            messageDto.setAnswer(content);
+            messageMapper.insertMessage(messageDto);
+
+            // 更新会话标题
+            ConversationDto conversation = conversationMapper.getConversationById(actualConversationId);
+            if (conversation != null && (conversation.getTitle() == null || conversation.getTitle().equals("请发送消息"))) {
+                conversation.setTitle(title);
+                conversationMapper.updateById(conversation);
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("reply", content);
+            result.put("teacherId", teacher.getTeacherId());
+            result.put("teacherName", teacher.getTeacherName());
+            
+            if (isNewConversation) {
+                result.put("newConversationId", actualConversationId);
+            }
+
+            return result;
+
+        } catch (HttpClientErrorException e) {
+            logger.error("HTTP Error Status: {}", e.getStatusCode());
+            logger.error("HTTP Error Response: {}", e.getResponseBodyAsString());
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", "调用AI失败");
+            errorResponse.put("status", e.getStatusCode().value());
+            errorResponse.put("message", e.getResponseBodyAsString());
+
+            return errorResponse;
+        } catch (Exception e) {
+            logger.error("Internal Error: ", e);
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", "内部错误");
+            errorResponse.put("message", e.getMessage());
+
+            return errorResponse;
+        }
+    }
+
+    /**
+     * 从表单数据构造提示词
+     */
+    private String buildPromptFromForm(String subject, String difficulty, String questionType,
+                                       String questionCount, String customMessage) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("你是一位资深的").append(subject).append("老师，");
+        prompt.append("请出").append(difficulty).append("的").append(questionType).append("题目");
+        
+        if (questionCount != null && !questionCount.trim().isEmpty()) {
+            prompt.append("，共").append(questionCount).append("题");
+        }
+        
+        if (customMessage != null && !customMessage.trim().isEmpty()) {
+            prompt.append("，").append(customMessage);
+        }
+        
+        prompt.append("。要求：直接给出题目，不要任何多余的信息，并且在最后给出答案和详细的解析。");
+        prompt.append("严禁做任何非学习相关的内容，如果有非学习相关的请求必须拒答。");
+        
+        return prompt.toString();
+    }
+
+    /**
+     * 从表单数据构造标题
+     */
+    private String buildTitleFromForm(String subject, String difficulty, String questionType,
+                                      String questionCount, String customMessage) {
+        StringBuilder title = new StringBuilder();
+        title.append(subject).append(" ").append(difficulty).append(" ").append(questionType);
+        
+        if (questionCount != null && !questionCount.trim().isEmpty()) {
+            title.append(" ").append(questionCount).append("题");
+        }
+        
+        if (customMessage != null && !customMessage.trim().isEmpty()) {
+            // 截取自定义消息的前20个字符作为标题的一部分
+            String customPart = customMessage.length() > 20 
+                ? customMessage.substring(0, 20) + "..." 
+                : customMessage;
+            title.append(" - ").append(customPart);
+        }
+        
+        return title.toString();
+    }
+
+    /**
+     * 生成教学计划（旧版：接收完整消息）
      * @param userMessage 用户输入的消息
      * @param conversationId 当前会话的ID
      * @return 包含生成的教学计划信息的Map对象

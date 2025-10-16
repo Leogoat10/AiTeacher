@@ -23,7 +23,52 @@ public class AiTeacherController {
     private TeachingPlanService teachingPlanService;
 
     /**
-     * 处理教学问题生成请求
+     * 处理教学问题生成请求（新版：接收表单数据）
+     * @param requestData 包含表单数据：subject, difficulty, questionType, questionCount, customMessage, conversationId
+     * @return 响应实体，包含生成的教学问题或错误信息
+     */
+    @PostMapping("/plan")
+    public ResponseEntity<?> generateTeachingPlan(@RequestBody Map<String, Object> requestData) {
+        logger.info("Received plan request data: {}", requestData);
+        try {
+            if (requestData == null || requestData.isEmpty()) {
+                logger.warn("请求数据不能为空");
+                return ResponseEntity.badRequest().body("请求数据不能为空");
+            }
+
+            Integer conversationId = (Integer) requestData.get("conversationId");
+            String subject = (String) requestData.get("subject");
+            String difficulty = (String) requestData.get("difficulty");
+            String questionType = (String) requestData.get("questionType");
+            String questionCount = (String) requestData.get("questionCount");
+            String customMessage = (String) requestData.get("customMessage");
+
+            Map<String, Object> result = teachingPlanService.generateTeachingPlan(
+                subject, difficulty, questionType, questionCount, customMessage, conversationId
+            );
+
+            if (result.containsKey("success") && (Boolean) result.get("success")) {
+                return ResponseEntity.ok(result);
+            } else {
+                int status = result.containsKey("status") ? (int) result.get("status") : 500;
+                return ResponseEntity.status(status).body(result);
+            }
+
+        } catch (Exception e) {
+            logger.error("Internal Error: ", e);
+
+            Map<String, Object> errorResponse = Map.of(
+                "success", false,
+                "error", "内部错误",
+                "message", e.getMessage()
+            );
+
+            return ResponseEntity.status(500).body(errorResponse);
+        }
+    }
+
+    /**
+     * 处理教学问题生成请求（旧版：接收完整消息）
      * @param requestData 包含用户消息和可选的 conversationId
      * @return 响应实体，包含生成的教学问题或错误信息
      */
