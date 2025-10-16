@@ -94,7 +94,7 @@ const handleRegister = async () => {
           <input
               v-model="username"
               type="text"
-              placeholder="请输入学号或姓名"
+              placeholder="请输入学号"
               required
           />
         </div>
