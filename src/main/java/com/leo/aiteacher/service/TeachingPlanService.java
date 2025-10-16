@@ -12,7 +12,7 @@ public interface TeachingPlanService {
                                              String questionCount, String customMessage, Integer conversationId);
     
     /**
-     * 生成教学问题（旧版：接收完整消息）
+     * 生成教学问题
      */
     Map<String, Object> generateTeachingQuestion(String message , Integer conversationId);
 

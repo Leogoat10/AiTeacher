@@ -21,7 +21,7 @@
     { label: '教师信息', path: '/teacherInfo', icon: '👤' },
     { label: '课程管理', path: '/teacherCourses', icon: '📚' },
     { label: 'AI出题', path: '/TeacherQuestion', icon: '✍️' },
-    { label: 'AI教案', path: '/ai/lesson', icon: '📝' },
+    { label: 'AI教案', path: '/teacherPlan', icon: '📝' },
   ]
 
   const studentItems = [

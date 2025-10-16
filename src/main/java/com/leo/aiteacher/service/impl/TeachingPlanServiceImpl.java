@@ -177,14 +177,14 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     }
 
     /**
-     * 构造结构化的提示词（参考学生答题评分反馈的方式）
+     * 构造结构化的提示词
      * 用于旧版 generateTeachingQuestion 方法
      */
     private String buildStructuredPrompt(String userMessage, TeacherDto teacher) {
         StringBuilder prompt = new StringBuilder();
 
         // 1. 明确角色定位
-        prompt.append("你是一位专业的高级教师，需要根据教师的需求生成教学题目。\n\n");
+        prompt.append("\n\n你是一位专业的高级教师，需要根据教师的需求生成教学题目。\n\n");
 
         // 3. 题目需求
         prompt.append("题目需求：\n").append(userMessage).append("\n\n");
@@ -207,7 +207,7 @@ public class TeachingPlanServiceImpl implements TeachingPlanService {
     }
 
     /**
-     * 从表单数据构造提示词（参考学生答题评分反馈的方式）
+     * 从表单数据构造提示词
      */
     private String buildPromptFromForm(String subject, String difficulty, String questionType,
                                        String questionCount, String customMessage) {

@@ -68,7 +68,7 @@ public class AiTeacherController {
     }
 
     /**
-     * 处理教学问题生成请求（旧版：接收完整消息）
+     * 处理教学问题生成请求
      * @param requestData 包含用户消息和可选的 conversationId
      * @return 响应实体，包含生成的教学问题或错误信息
      */
