@@ -49,13 +49,14 @@ public class AiTeacherController {
 
             Integer conversationId = (Integer) requestData.get("conversationId");
             String subject = (String) requestData.get("subject");
+            String grade = (String) requestData.get("grade");
             String difficulty = (String) requestData.get("difficulty");
             String questionType = (String) requestData.get("questionType");
             String questionCount = (String) requestData.get("questionCount");
             String customMessage = (String) requestData.get("customMessage");
 
             Map<String, Object> result = teachingPlanQueService.generateTeachingQuestion(
-                subject, difficulty, questionType, questionCount, customMessage, conversationId
+                subject, grade,difficulty, questionType, questionCount, customMessage, conversationId
             );
 
             if (result.containsKey("success") && (Boolean) result.get("success")) {

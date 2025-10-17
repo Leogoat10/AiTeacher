@@ -43,7 +43,7 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
     /**
      * 从表单数据构造提示词
      */
-    private String buildPromptFromFormQuestion(String subject, String difficulty, String questionType,
+    private String buildPromptFromFormQuestion(String subject, String grade, String difficulty, String questionType,
                                        String questionCount, String customMessage) {
         StringBuilder prompt = new StringBuilder();
 
@@ -52,6 +52,7 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
 
         // 2. 题目要求
         prompt.append("题目要求：\n");
+        prompt.append("- 年级：").append(grade).append("\n");
         prompt.append("- 科目：").append(subject).append("\n");
         prompt.append("- 难度：").append(difficulty).append("\n");
         prompt.append("- 题型：").append(questionType).append("\n");
@@ -72,7 +73,7 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
         prompt.append("2. 题目描述要清晰、准确、完整\n");
         prompt.append("3. 在最后给出各题的“答案与解析”\n");
         prompt.append("4. 提供详细的解析和解题思路\n");
-        prompt.append("5. 如果是填空题，标明具体填空位置；如果是简答题有多个小问，明确标注题号\n");
+        prompt.append("5. 如果是填空题，标明具体填空位置，填空题的下划线使用“______”；如果是简答题有多个小问，明确标注题号\n");
         prompt.append("6. 每道题标明分数\n\n");
 
         // 4. 重要说明
@@ -89,10 +90,10 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
     /**
      * 从表单数据构造标题
      */
-    private String buildTitleFromForm(String subject, String difficulty, String questionType,
+    private String buildTitleFromForm(String subject, String grade , String difficulty, String questionType,
                                       String questionCount, String customMessage) {
         StringBuilder title = new StringBuilder();
-        title.append(subject).append(" ").append(difficulty).append(" ").append(questionType);
+        title.append(subject).append(" ").append(grade).append(" ").append(difficulty).append(" ").append(questionType);
         
         if (questionCount != null && !questionCount.trim().isEmpty()) {
             title.append(" ").append(questionCount).append("题");
@@ -112,6 +113,7 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
     /**
      * 生成题目（新版：接收表单数据）
      * @param subject 科目/专业
+     * @param grade 年级
      * @param difficulty 难易程度
      * @param questionType 题型
      * @param questionCount 题目数量
@@ -120,10 +122,10 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
      * @return 包含生成的教学题目的Map对象
      */
     @Override
-    public Map<String, Object> generateTeachingQuestion(String subject, String difficulty, String questionType,
+    public Map<String, Object> generateTeachingQuestion(String subject, String grade ,String difficulty, String questionType,
                                                         String questionCount, String customMessage, Integer conversationId) {
-        logger.info("表单数据: subject={}, difficulty={}, questionType={}, questionCount={}, customMessage={}",
-                subject, difficulty, questionType, questionCount, customMessage);
+        logger.info("表单数据: subject={}, grade={}, difficulty={}, questionType={}, questionCount={}, customMessage={}",
+                subject,grade ,difficulty, questionType, questionCount, customMessage);
 
         try {
             TeacherDto teacher = SessionUtils.getCurrentTeacher();
@@ -136,11 +138,11 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
             }
 
             // 从表单数据提取标题
-            String title = buildTitleFromForm(subject, difficulty, questionType, questionCount, customMessage);
+            String title = buildTitleFromForm(subject, grade ,difficulty, questionType, questionCount, customMessage);
             logger.info("标题: {}", title);
 
             // 从表单数据构造提示词
-            String promptMessage = buildPromptFromFormQuestion(subject, difficulty, questionType, questionCount, customMessage);
+            String promptMessage = buildPromptFromFormQuestion(subject, grade, difficulty, questionType, questionCount, customMessage);
             logger.info("提示词: {}", promptMessage);
 
             // 如果 conversationId 为 null，自动创建新对话

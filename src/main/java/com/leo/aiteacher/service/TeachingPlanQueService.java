@@ -9,7 +9,7 @@ public interface TeachingPlanQueService {
     /**
      * 生成教学问题（新版：接收表单数据）
      */
-    Map<String, Object> generateTeachingQuestion(String subject, String difficulty, String questionType,
+    Map<String, Object> generateTeachingQuestion(String subject,String grade, String difficulty, String questionType,
                                                  String questionCount, String customMessage, Integer conversationId);
 
     Map<String, Object> createConversation();

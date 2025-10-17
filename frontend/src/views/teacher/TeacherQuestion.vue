@@ -70,6 +70,7 @@ const historyConversations = ref<Array<{id: number, createTime: string,title: st
 const loadingHistory = ref(false)
 const deletingConversationId = ref<number | null>(null)
 
+
 const deleteConversation = async (conversationId: number) => {
   if (!await confirmDelete()) return
 
@@ -256,15 +257,67 @@ let messageIdCounter = 0
 
 // 表单数据
 const subject = ref('')
+const grade = ref('')
 const difficulty = ref('')
 const questionType = ref('')
 const questionCount = ref('')
 const customMessage = ref('')
+const educationOptions = [
+  {
+    value: '小学',
+    label: '小学',
+    children: [
+      { value: '一年级', label: '一年级' },
+      { value: '二年级', label: '二年级' },
+      { value: '三年级', label: '三年级' },
+      { value: '三年级', label: '四年级' },
+      { value: '五年级', label: '五年级' },
+      { value: '六年级', label: '六年级' }
+    ]
+  },
+  {
+    value: '初中',
+    label: '初中',
+    children: [
+      { value: '七年级', label: '七年级' },
+      { value: '八年级', label: '八年级' },
+      { value: '九年级', label: '九年级' }
+    ]
+  },
+  {
+    value: '高中',
+    label: '高中',
+    children: [
+      { value: '高一', label: '高一' },
+      { value: '高二', label: '高二' },
+      { value: '高三', label: '高三' }
+    ]
+  },
+  {
+    value: '大学',
+    label: '大学',
+    children: [
+      { value: '大学一年级', label: '大学一年级' },
+      { value: '大学二年级', label: '大学二年级' },
+      { value: '大学三年级', label: '大学三年级' },
+      { value: '大学四年级', label: '大学四年级' }
+    ]
+  },
+  {
+    value: '其他',
+    label: '其他'
+  }
+]
 
 const send = async () => {
   // 验证必填字段
   if (!subject.value.trim()) {
     ElMessage.warning('请输入科目/专业')
+    return
+  }
+
+  if (!grade.value) {
+    ElMessage.warning('请选择年级')
     return
   }
 
@@ -290,7 +343,7 @@ const send = async () => {
   }
 
   // 添加用户消息（显示用）
-  let userDisplayMessage = `${subject.value} ${difficulty.value} ${questionType.value}`
+  let userDisplayMessage = `${subject.value} ${grade.value} ${difficulty.value} ${questionType.value}`
   if (questionCount.value) {
     userDisplayMessage += ` (${questionCount.value}题)`
   }
@@ -312,6 +365,7 @@ const send = async () => {
     const res = await apiClient.post('/teacher/question',
         {
           subject: subject.value,
+          grade: grade.value.toString(),
           difficulty: difficulty.value,
           questionType: questionType.value,
           questionCount: questionCount.value,
@@ -393,6 +447,7 @@ const send = async () => {
 // 添加清空表单的方法
 const clearForm = () => {
   subject.value = ''
+  grade.value = ''
   difficulty.value = ''
   questionType.value = ''
   questionCount.value = ''
@@ -632,6 +687,16 @@ const sendAssignmentToCourse = async () => {
               v-model="subject"
               placeholder="请输入科目/专业"
               :disabled="loading"
+            />
+          </el-form-item>
+
+          <el-form-item label="年级">
+            <el-cascader
+                v-model="grade"
+                :options="educationOptions"
+                :props="{ expandTrigger: 'hover' }"
+                placeholder="请选择年级"
+                style="width: 100%"
             />
           </el-form-item>
 
