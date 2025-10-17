@@ -48,7 +48,7 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
         StringBuilder prompt = new StringBuilder();
 
         // 1. 明确角色定位
-        prompt.append("你是一位专业的").append(subject).append("教师，需要为学生出题用于教学和考核。\n\n");
+        prompt.append("\n你是一位专业的").append(subject).append("教师，需要为学生出题用于教学和考核。\n\n");
 
         // 2. 题目要求
         prompt.append("题目要求：\n");
@@ -68,13 +68,14 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
         prompt.append("\n");
 
         // 3. 输出格式要求
-        prompt.append("请按照以下格式输出：\n");
+        prompt.append("\n请按照以下格式输出：\n");
         prompt.append("1. 直接给出题目内容，明确标注每个题目的题号\n");
         prompt.append("2. 题目描述要清晰、准确、完整\n");
         prompt.append("3. 在最后给出各题的“答案与解析”\n");
         prompt.append("4. 提供详细的解析和解题思路\n");
-        prompt.append("5. 如果是填空题，标明具体填空位置，填空题的下划线使用“______”；如果是简答题有多个小问，明确标注题号\n");
-        prompt.append("6. 每道题标明分数\n\n");
+        prompt.append("5. 如果是填空题，标明具体填空位置，填空题的下划线使用“______”\n" );
+        prompt.append("6. 如果是简答题有多个小问，明确标注题号\n");
+        prompt.append("7. 每道题标明分数\n\n");
 
         // 4. 重要说明
         prompt.append("重要说明：\n");
