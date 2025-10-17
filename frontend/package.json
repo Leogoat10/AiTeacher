@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@types/axios": "^0.9.36",
+    "@types/markdown-it": "^14.1.2",
     "axios": "^1.12.2",
     "dompurify": "^3.2.7",
     "element-plus": "^2.11.2",
+    "markdown-it": "^14.1.0",
     "marked": "^16.3.0",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1"

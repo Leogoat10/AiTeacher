@@ -92,6 +92,120 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
         return result;
     }
     
+    @Override
+    public List<Map<String, Object>> getCourseStudentAnswers(String courseCode, Integer teacherId) {
+        logger.info("教师查看课程学生答题记录，courseCode={}, teacherId={}", courseCode, teacherId);
+        
+        // 验证教师是否有权限查看该课程
+        AssignmentDto assignment = assignmentMapper.selectOne(
+            new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<AssignmentDto>()
+                .eq("course_code", courseCode)
+                .eq("teacher_id", teacherId)
+                .last("LIMIT 1")
+        );
+        
+        if (assignment == null) {
+            logger.warn("教师无权限查看该课程的答题记录，courseCode={}, teacherId={}", courseCode, teacherId);
+            return List.of();
+        }
+        
+        return studentAnswerMapper.getCourseStudentAnswers(courseCode);
+    }
+    
+    @Override
+    public List<Map<String, Object>> getCourseStudents(String courseCode, Integer teacherId) {
+        logger.info("教师查看课程学生列表，courseCode={}, teacherId={}", courseCode, teacherId);
+        
+        // 验证教师是否有权限查看该课程
+        AssignmentDto assignment = assignmentMapper.selectOne(
+            new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<AssignmentDto>()
+                .eq("course_code", courseCode)
+                .eq("teacher_id", teacherId)
+                .last("LIMIT 1")
+        );
+        
+        if (assignment == null) {
+            logger.warn("教师无权限查看该课程的学生列表，courseCode={}, teacherId={}", courseCode, teacherId);
+            return List.of();
+        }
+        
+        return studentAnswerMapper.getCourseStudents(courseCode);
+    }
+    
+    @Override
+    public List<Map<String, Object>> getStudentAnswerHistory(Integer studentId, String courseCode, Integer teacherId) {
+        logger.info("教师查看学生答题历史，studentId={}, courseCode={}, teacherId={}", studentId, courseCode, teacherId);
+        
+        // 验证教师是否有权限查看该课程
+        AssignmentDto assignment = assignmentMapper.selectOne(
+            new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<AssignmentDto>()
+                .eq("course_code", courseCode)
+                .eq("teacher_id", teacherId)
+                .last("LIMIT 1")
+        );
+        
+        if (assignment == null) {
+            logger.warn("教师无权限查看该课程的学生答题历史，courseCode={}, teacherId={}", courseCode, teacherId);
+            return List.of();
+        }
+        
+        return studentAnswerMapper.getStudentAnswerHistory(studentId, courseCode);
+    }
+    
+    @Override
+    public List<Map<String, Object>> getAssignmentStudentAnswers(Integer assignmentId, Integer teacherId) {
+        logger.info("教师查看题目学生答题记录，assignmentId={}, teacherId={}", assignmentId, teacherId);
+        
+        // 验证教师是否有权限查看该题目
+        AssignmentDto assignment = assignmentMapper.selectById(assignmentId);
+        if (assignment == null || !assignment.getTeacherId().equals(teacherId)) {
+            logger.warn("教师无权限查看该题目的答题记录，assignmentId={}, teacherId={}", assignmentId, teacherId);
+            return List.of();
+        }
+        
+        return studentAnswerMapper.getAssignmentStudentAnswers(assignmentId);
+    }
+    
+    @Override
+    public Map<String, Object> updateStudentAnswer(Integer answerId, Integer teacherId, String score, String analysis) {
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            // 1. 获取答案记录
+            StudentAnswerDto answer = studentAnswerMapper.selectById(answerId);
+            if (answer == null) {
+                result.put("success", false);
+                result.put("message", "答案记录不存在");
+                return result;
+            }
+            
+            // 2. 验证教师是否有权限修改该答案
+            AssignmentDto assignment = assignmentMapper.selectById(answer.getAssignmentId());
+            if (assignment == null || !assignment.getTeacherId().equals(teacherId)) {
+                result.put("success", false);
+                result.put("message", "无权限修改该答案");
+                return result;
+            }
+            
+            // 3. 更新评分和分析
+            answer.setAiScore(score);
+            answer.setAiAnalysis(analysis);
+            studentAnswerMapper.updateById(answer);
+            
+            logger.info("教师更新学生答案成功，answerId={}, teacherId={}", answerId, teacherId);
+            
+            result.put("success", true);
+            result.put("message", "更新成功");
+            
+        } catch (Exception e) {
+            logger.error("更新学生答案失败", e);
+            result.put("success", false);
+            result.put("message", "更新失败: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
     /**
      * 构造用于AI评分的提示词
      */

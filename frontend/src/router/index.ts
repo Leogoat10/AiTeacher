@@ -8,6 +8,8 @@ import StuLogin from "../views/student/stuLogin.vue";
 import StudentInfo from "../views/student/studentInfo.vue";
 import teacherCourses from "../views/teacher/teacherCourses.vue";
 import StudentAssignments from "../views/student/studentAssignments.vue";
+import AnswerManagement from "../views/teacher/answerManagement.vue";
+import StudentAnswerHistory from "../views/teacher/studentAnswerHistory.vue";
 
 
 const routes = [
@@ -40,6 +42,16 @@ const routes = [
         path: '/teacherCourses',
         name: 'teacherCourses',
         component: teacherCourses
+    },
+    {
+        path: '/answerManagement',
+        name: 'answerManagement',
+        component: AnswerManagement
+    },
+    {
+        path: '/studentAnswerHistory/:studentId/:courseCode',
+        name: 'studentAnswerHistory',
+        component: StudentAnswerHistory
     },
     {
         path: '/studentLogin',

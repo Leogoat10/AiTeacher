@@ -55,6 +55,15 @@ public class CourseController {
     }
 
     /**
+     * 获取当前登录教师的课程列表（别名接口）
+     * @return 教师课程列表
+     */
+    @GetMapping("/list")
+    public ResponseEntity<List<CourseDto>> listCourses() {
+        return getTeacherCourse();
+    }
+
+    /**
      * 添加课程
      * @param courseDto 课程信息
      * @return 添加结果
