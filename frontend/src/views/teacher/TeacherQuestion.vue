@@ -3,11 +3,60 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import { marked } from 'marked'
+import katex from 'katex'
 import DOMPurify from 'dompurify'
 import { useRouter } from "vue-router";
 import { Clock, ChatDotRound, Loading } from '@element-plus/icons-vue'
+import 'katex/dist/katex.min.css'
 
 const router = useRouter()
+
+// 占位符前缀，用于保护 LaTeX 公式
+const LATEX_PLACEHOLDER_PREFIX = 'LATEXFORMULA'
+const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
+
+// 提取并保护 LaTeX 公式，替换为占位符
+const protectLatexFormulas = (text: string): string => {
+  latexFormulaStore.clear()
+  let counter = 0
+  
+  // 先处理块级公式 \[...\]
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (match, formula) => {
+    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}DISPLAY${counter}ENDLATEX`
+    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: true })
+    counter++
+    return placeholder
+  })
+  
+  // 再处理行内公式 \(...\)
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (match, formula) => {
+    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}INLINE${counter}ENDLATEX`
+    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: false })
+    counter++
+    return placeholder
+  })
+  
+  return text
+}
+
+// 渲染被保护的 LaTeX 公式
+const renderProtectedLatex = (html: string): string => {
+  latexFormulaStore.forEach((data, placeholder) => {
+    try {
+      const rendered = katex.renderToString(data.formula, {
+        displayMode: data.displayMode,
+        throwOnError: false,
+        output: 'html'
+      })
+      // 替换所有出现的占位符（可能被 HTML 编码或包装在标签中）
+      html = html.replace(new RegExp(placeholder, 'g'), rendered)
+    } catch (e) {
+      console.error('KaTeX render error:', e, 'Formula:', data.formula)
+    }
+  })
+  
+  return html
+}
 
 // 将 axios 实例改为启用 withCredentials，确保浏览器携带 session cookie
 const apiClient = axios.create({
@@ -120,9 +169,17 @@ const switchToConversation = async (conversationId: number) => {
       // 加载对话历史消息
       const messages = res.data.messages || []
         for (const msg of messages) {
-          const content = msg.role === 'ai'
-            ? DOMPurify.sanitize(await marked.parse(msg.content))
-            : msg.content
+          let content = msg.content
+          if (msg.role === 'ai') {
+            // 1. 提取并保护 LaTeX 公式
+            const protectedText = protectLatexFormulas(msg.content)
+            // 2. 解析 Markdown
+            const html = await marked.parse(protectedText)
+            // 3. 渲染被保护的 LaTeX 公式
+            const withLatex = renderProtectedLatex(html)
+            // 4. 清理 HTML
+            content = DOMPurify.sanitize(withLatex)
+          }
 
           chatHistory.value.push({
             role: msg.role,
@@ -269,8 +326,14 @@ const send = async () => {
       }
       // 处理 AI 返回的 Markdown 内容
       const markdownContent = res.data.reply || ''
-      const rawHtml = await marked.parse(markdownContent)
-      const htmlContent = DOMPurify.sanitize(rawHtml)
+      // 1. 提取并保护 LaTeX 公式
+      const protectedText = protectLatexFormulas(markdownContent)
+      // 2. 解析 Markdown
+      const html = await marked.parse(protectedText)
+      // 3. 渲染被保护的 LaTeX 公式
+      const withLatex = renderProtectedLatex(html)
+      // 4. 清理 HTML
+      const htmlContent = DOMPurify.sanitize(withLatex)
 
       chatHistory.value.push({
         role: 'ai',

@@ -5,7 +5,9 @@ import axios from 'axios'
 import { useRouter } from 'vue-router'
 import { Clock, User, School, Edit, Check } from '@element-plus/icons-vue'
 import { marked } from 'marked'
+import katex from 'katex'
 import DOMPurify from 'dompurify'
+import 'katex/dist/katex.min.css'
 
 const router = useRouter()
 
@@ -13,6 +15,52 @@ const apiClient = axios.create({
   baseURL: '/api',
   withCredentials: true
 })
+
+// 占位符前缀，用于保护 LaTeX 公式
+const LATEX_PLACEHOLDER_PREFIX = 'LATEXFORMULA'
+const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
+
+// 提取并保护 LaTeX 公式，替换为占位符
+const protectLatexFormulas = (text: string): string => {
+  latexFormulaStore.clear()
+  let counter = 0
+  
+  // 先处理块级公式 \[...\]
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (match, formula) => {
+    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}DISPLAY${counter}ENDLATEX`
+    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: true })
+    counter++
+    return placeholder
+  })
+  
+  // 再处理行内公式 \(...\)
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (match, formula) => {
+    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}INLINE${counter}ENDLATEX`
+    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: false })
+    counter++
+    return placeholder
+  })
+  
+  return text
+}
+
+// 渲染被保护的 LaTeX 公式
+const renderProtectedLatex = (html: string): string => {
+  latexFormulaStore.forEach((data, placeholder) => {
+    try {
+      const rendered = katex.renderToString(data.formula, {
+        displayMode: data.displayMode,
+        throwOnError: false,
+        output: 'html'
+      })
+      html = html.replace(new RegExp(placeholder, 'g'), rendered)
+    } catch (e) {
+      console.error('KaTeX render error:', e, 'Formula:', data.formula)
+    }
+  })
+  
+  return html
+}
 
 interface Assignment {
   id: number
@@ -52,8 +100,14 @@ marked.setOptions({
 // 渲染 Markdown
 const renderMarkdown = (content: string): string => {
   if (!content) return ''
-  const rawHtml = marked(content) as string
-  return DOMPurify.sanitize(rawHtml)
+  // 1. 提取并保护 LaTeX 公式
+  const protectedText = protectLatexFormulas(content)
+  // 2. 解析 Markdown
+  const html = marked(protectedText) as string
+  // 3. 渲染被保护的 LaTeX 公式
+  const withLatex = renderProtectedLatex(html)
+  // 4. 清理 HTML
+  return DOMPurify.sanitize(withLatex)
 }
 
 // 分离题目内容和答案解析
