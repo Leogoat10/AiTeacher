@@ -167,7 +167,7 @@ onMounted(() => {
           </tbody>
         </table>
         <div v-else class="no-data">
-          该课程下暂无学生答题
+          该课程下暂无学生
         </div>
       </div>
     </div>
