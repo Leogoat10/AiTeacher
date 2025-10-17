@@ -671,6 +671,14 @@ const sendAssignmentToCourse = async () => {
       <p>向 AI 提问，获取教学方案建议</p>
       <div class="header-buttons">
         <el-button
+            size="small"
+            @click="openHistoryDialog"
+            type="primary"
+        >
+          <el-icon><Clock /></el-icon>
+          历史对话
+        </el-button>
+        <el-button
           size="small"
           @click="toggleSelectAll"
           :type="isAllSelected ? 'danger' : 'primary'"
@@ -694,12 +702,25 @@ const sendAssignmentToCourse = async () => {
         >
           导出为Word
         </el-button>
+
       </div>
     </div>
     <div class="main-container">
       <!-- 左侧表单区域 -->
       <div class="form-container">
-        <div class="form-title">题目生成设置</div>
+        <div class="form-title-container">
+          <div class="form-title">题目生成设置</div>
+          <div class="form-title-actions">
+            <el-button size="small" @click="createNewConversation" :loading="creatingConversation">
+              <el-icon><ChatDotRound /></el-icon>
+              新建对话
+            </el-button>
+            <el-button size="small" @click="clearForm" type="warning">
+              <el-icon><i class="fas fa-trash-alt"></i></el-icon>
+              清空表单
+            </el-button>
+          </div>
+        </div>
         <el-form label-position="top">
           <el-form-item label="科目/专业">
             <el-input
@@ -776,18 +797,6 @@ const sendAssignmentToCourse = async () => {
           >
             生成题目
           </el-button>
-          <el-button size="small" @click="openHistoryDialog">
-          <el-icon><Clock /></el-icon>
-          历史对话
-        </el-button>
-          <el-button size="small" @click="createNewConversation" :loading="creatingConversation">
-          <el-icon><ChatDotRound /></el-icon>
-          新建对话
-        </el-button>
-          <el-button size="small" @click="clearForm" type="warning">
-          <el-icon><i class="fas fa-trash-alt"></i></el-icon>
-          清空表单
-        </el-button>
 
         </el-form>
       </div>
@@ -944,7 +953,6 @@ const sendAssignmentToCourse = async () => {
 .ai-teacher-container {
 max-width: 1400px;
 margin: 20px auto;
-padding: 20px;
 font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
 height: calc(100vh - 40px);
 display: flex;
@@ -995,7 +1003,6 @@ flex-direction: column;
 .form-title {
 font-size: 18px;
 font-weight: bold;
-margin-bottom: 20px;
 color: #333;
 }
 
@@ -1240,4 +1247,24 @@ text-decoration: underline;
 text-decoration-style: solid;
 text-decoration-thickness: 1px;
 }
+
+.form-title-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0px;
+}
+
+.form-title {
+  font-size: 18px;
+  font-weight: bold;
+  color: #333;
+}
+
+.form-title-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
 </style>
