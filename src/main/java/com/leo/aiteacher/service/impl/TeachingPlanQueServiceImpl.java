@@ -189,12 +189,15 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
             );
 
             logger.info("API 响应状态: {}", response.getStatusCode());
+            logger.info("API 响应内容1: {}", response.getBody());
 
             // 解析AI响应
             ObjectMapper objectMapper = new ObjectMapper();
             JsonNode rootNode = objectMapper.readTree(response.getBody());
+            logger.info("API 响应内容2: {}", rootNode);
             JsonNode contentNode = rootNode.path("choices").get(0).path("message").path("content");
             String content = contentNode.isMissingNode() || contentNode.isNull() ? "" : contentNode.asText("");
+            logger.info("API 响应内容3: {}", content);
 
             // 保存到数据库
             MessageDto messageDto = new MessageDto();
