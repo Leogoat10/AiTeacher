@@ -8,14 +8,18 @@ import DOMPurify from 'dompurify'
 import { ElMessage } from "element-plus"
 import 'katex/dist/katex.min.css'
 
-// 占位符前缀，用于保护 LaTeX 公式
+// 占位符前缀，用于保护 LaTeX 公式和下划线
 const LATEX_PLACEHOLDER_PREFIX = 'LATEXFORMULA'
+const UNDERSCORE_PLACEHOLDER_PREFIX = 'UNDERSCOREBLANK'
 const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
+const underscoreStore: Map<string, string> = new Map()
 
-// 提取并保护 LaTeX 公式，替换为占位符
+// 提取并保护 LaTeX 公式和下划线，替换为占位符
 const protectLatexFormulas = (text: string): string => {
   latexFormulaStore.clear()
+  underscoreStore.clear()
   let counter = 0
+  let underscoreCounter = 0
   
   // 先处理块级公式 \[...\]
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (match, formula) => {
@@ -33,11 +37,20 @@ const protectLatexFormulas = (text: string): string => {
     return placeholder
   })
   
+  // 保护填空题中的下划线（连续的下划线，通常2个或更多）
+  text = text.replace(/_{2,}/g, (match) => {
+    const placeholder = `${UNDERSCORE_PLACEHOLDER_PREFIX}${underscoreCounter}ENDUNDERSCORE`
+    underscoreStore.set(placeholder, match)
+    underscoreCounter++
+    return placeholder
+  })
+  
   return text
 }
 
-// 渲染被保护的 LaTeX 公式
+// 渲染被保护的 LaTeX 公式和下划线
 const renderProtectedLatex = (html: string): string => {
+  // 先渲染 LaTeX 公式
   latexFormulaStore.forEach((data, placeholder) => {
     try {
       const rendered = katex.renderToString(data.formula, {
@@ -49,6 +62,12 @@ const renderProtectedLatex = (html: string): string => {
     } catch (e) {
       console.error('KaTeX render error:', e, 'Formula:', data.formula)
     }
+  })
+  
+  // 恢复下划线（用带样式的span包裹，避免被当作普通文本处理）
+  underscoreStore.forEach((underscores, placeholder) => {
+    const styledUnderscores = `<span class="fill-blank">${underscores}</span>`
+    html = html.replace(new RegExp(placeholder, 'g'), styledUnderscores)
   })
   
   return html
@@ -655,6 +674,16 @@ td {
 
 .markdown-content :deep(em) {
   font-style: italic;
+}
+
+/* 填空题下划线样式 */
+.markdown-content :deep(.fill-blank) {
+  display: inline;
+  font-weight: normal;
+  font-style: normal;
+  text-decoration: underline;
+  text-decoration-style: solid;
+  text-decoration-thickness: 1px;
 }
 
 .form-group {
