@@ -8,6 +8,7 @@ import StuLogin from "../views/student/stuLogin.vue";
 import StudentInfo from "../views/student/studentInfo.vue";
 import teacherCourses from "../views/teacher/teacherCourses.vue";
 import StudentAssignments from "../views/student/studentAssignments.vue";
+import StudentAnswerPage from "../views/student/studentAnswerPage.vue";
 import AnswerManagement from "../views/teacher/answerManagement.vue";
 import StudentAnswerHistory from "../views/teacher/studentAnswerHistory.vue";
 
@@ -67,6 +68,11 @@ const routes = [
         path: '/studentAssignments',
         name: 'studentAssignments',
         component: StudentAssignments
+    },
+    {
+        path: '/studentAnswer/:assignmentId',
+        name: 'studentAnswer',
+        component: StudentAnswerPage
     },
 
 ]

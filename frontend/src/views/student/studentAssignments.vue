@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { Clock, User, School, Edit, Check } from '@element-plus/icons-vue'
 import { marked } from 'marked'
 import katex from 'katex'
@@ -10,6 +10,7 @@ import DOMPurify from 'dompurify'
 import 'katex/dist/katex.min.css'
 
 const router = useRouter()
+const route = useRoute()
 
 const apiClient = axios.create({
   baseURL: '/api',
@@ -101,9 +102,6 @@ const assignments = ref<Assignment[]>([])
 const loading = ref(false)
 const selectedAssignment = ref<Assignment | null>(null)
 const showDetailDialog = ref(false)
-const showAnswerDialog = ref(false)
-const studentAnswer = ref('')
-const submitting = ref(false)
 const showResultDialog = ref(false)
 const evaluationResult = ref<{
   score: string
@@ -208,70 +206,10 @@ const viewDetail = (assignment: Assignment) => {
 
 // 开始答题
 const startAnswer = (assignment: Assignment) => {
-  selectedAssignment.value = assignment
-  studentAnswer.value = ''
-  showDetailDialog.value = false
-  showAnswerDialog.value = true
+  router.push(`/studentAnswer/${assignment.assignment_id}`)
 }
 
-// 提交答案
-const submitAnswer = async () => {
-  if (!studentAnswer.value.trim()) {
-    ElMessage.warning('请输入答案')
-    return
-  }
 
-  if (!selectedAssignment.value) {
-    ElMessage.error('未选择题目')
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      '提交后将无法修改，确认提交答案吗？',
-      '确认提交',
-      {
-        confirmButtonText: '确认',
-        cancelButtonText: '取消',
-        type: 'warning',
-      }
-    )
-  } catch {
-    return
-  }
-
-  submitting.value = true
-  try {
-    const res = await apiClient.post('/student/submitAnswer', {
-      assignmentId: selectedAssignment.value.assignment_id,
-      answer: studentAnswer.value
-    })
-
-    if (res.data.success) {
-      ElMessage.success('答案提交成功！')
-      evaluationResult.value = {
-        score: res.data.score,
-        analysis: res.data.analysis
-      }
-      showAnswerDialog.value = false
-      showResultDialog.value = true
-      // 重新加载题目列表
-      await loadAssignments()
-    } else {
-      ElMessage.error(res.data.message || '提交失败')
-    }
-  } catch (err: any) {
-    console.error('提交答案失败:', err)
-    if (err.response?.status === 401) {
-      ElMessage.error('未登录或会话已过期，请先登录')
-      router.push('/studentLogin')
-    } else {
-      ElMessage.error(err.response?.data?.message || err.response?.data || '提交答案失败')
-    }
-  } finally {
-    submitting.value = false
-  }
-}
 
 // 格式化日期
 const formatDate = (dateString: string) => {
@@ -280,6 +218,18 @@ const formatDate = (dateString: string) => {
 
 onMounted(() => {
   loadAssignments()
+  
+  // 检查是否有提交成功的返回参数
+  if (route.query.submitted === 'true') {
+    evaluationResult.value = {
+      score: route.query.score as string || '',
+      analysis: route.query.analysis as string || ''
+    }
+    showResultDialog.value = true
+    
+    // 清除URL参数
+    router.replace({ path: '/studentAssignments' })
+  }
 })
 </script>
 
@@ -458,61 +408,6 @@ onMounted(() => {
             @click="startAnswer(selectedAssignment!)"
           >
             开始答题
-          </el-button>
-        </span>
-      </template>
-    </el-dialog>
-
-    <!-- 答题对话框 -->
-    <el-dialog
-      v-model="showAnswerDialog"
-      :title="'答题：' + selectedAssignment?.title"
-      width="900px"
-      :close-on-click-modal="false"
-    >
-      <div v-if="selectedAssignment" class="answer-container">
-        <div class="question-section">
-          <h4>📝 题目内容：</h4>
-          <div class="question-content markdown-body" v-html="renderMarkdown(splitContentAndAnswer(selectedAssignment.content).question)"></div>
-        </div>
-
-        <el-divider />
-
-        <div class="answer-section">
-          <h4>✍️ 你的答案：</h4>
-          <el-input
-            v-model="studentAnswer"
-            type="textarea"
-            :rows="10"
-            placeholder="请输入你的答案..."
-            maxlength="5000"
-            show-word-limit
-          />
-        </div>
-
-        <div class="answer-tips">
-          <el-alert
-            title="提示"
-            type="info"
-            :closable="false"
-          >
-            <p>• 请认真作答，提交后将无法修改</p>
-            <p>• AI会自动评分并给出详细的分析和建议</p>
-            <p>• 建议先在本地编辑器写好答案再粘贴提交</p>
-          </el-alert>
-        </div>
-      </div>
-
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="showAnswerDialog = false">取消</el-button>
-          <el-button
-            type="primary"
-            @click="submitAnswer"
-            :loading="submitting"
-            :disabled="!studentAnswer.trim()"
-          >
-            {{ submitting ? '提交中...' : '提交答案' }}
           </el-button>
         </span>
       </template>
@@ -902,40 +797,6 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-}
-
-/* 答题对话框样式 */
-.answer-container {
-  padding: 10px 0;
-}
-
-.question-section,
-.answer-section {
-  margin-bottom: 20px;
-}
-
-.question-section h4,
-.answer-section h4 {
-  color: #303133;
-  margin-bottom: 12px;
-  font-size: 16px;
-}
-
-.question-content {
-  background-color: #f5f7fa;
-  border-radius: 8px;
-  padding: 15px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.answer-tips {
-  margin-top: 15px;
-}
-
-.answer-tips :deep(.el-alert__description) p {
-  margin: 5px 0;
-  font-size: 13px;
 }
 
 /* 评分结果样式 */
