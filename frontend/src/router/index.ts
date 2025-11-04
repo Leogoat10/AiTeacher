@@ -9,6 +9,7 @@ import StudentInfo from "../views/student/studentInfo.vue";
 import teacherCourses from "../views/teacher/teacherCourses.vue";
 import StudentAssignments from "../views/student/studentAssignments.vue";
 import StudentAnswerPage from "../views/student/studentAnswerPage.vue";
+import StudentAssignmentDetail from "../views/student/studentAssignmentDetail.vue";
 import AnswerManagement from "../views/teacher/answerManagement.vue";
 import StudentAnswerHistory from "../views/teacher/studentAnswerHistory.vue";
 
@@ -73,6 +74,11 @@ const routes = [
         path: '/studentAnswer/:assignmentId',
         name: 'studentAnswer',
         component: StudentAnswerPage
+    },
+    {
+        path: '/studentAssignmentDetail/:assignmentId',
+        name: 'studentAssignmentDetail',
+        component: StudentAssignmentDetail
     },
 
 ]

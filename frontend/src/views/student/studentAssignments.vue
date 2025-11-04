@@ -100,8 +100,6 @@ interface Assignment {
 
 const assignments = ref<Assignment[]>([])
 const loading = ref(false)
-const selectedAssignment = ref<Assignment | null>(null)
-const showDetailDialog = ref(false)
 const showResultDialog = ref(false)
 const evaluationResult = ref<{
   score: string
@@ -200,8 +198,7 @@ const loadAssignments = async () => {
 
 // 查看题目详情
 const viewDetail = (assignment: Assignment) => {
-  selectedAssignment.value = assignment
-  showDetailDialog.value = true
+  router.push(`/studentAssignmentDetail/${assignment.assignment_id}`)
 }
 
 // 开始答题
@@ -318,100 +315,6 @@ onMounted(() => {
         </div>
       </el-card>
     </div>
-
-    <!-- 题目详情对话框 -->
-    <el-dialog
-      v-model="showDetailDialog"
-      :title="selectedAssignment?.title"
-      width="800px"
-      :close-on-click-modal="false"
-    >
-      <div v-if="selectedAssignment" class="assignment-detail">
-        <div class="detail-info">
-          <el-descriptions :column="2" border>
-            <el-descriptions-item label="课程">
-              {{ selectedAssignment.course_name }}
-            </el-descriptions-item>
-            <el-descriptions-item label="老师">
-              {{ selectedAssignment.teacher_name }}
-            </el-descriptions-item>
-            <el-descriptions-item label="发布时间">
-              {{ formatDate(selectedAssignment.assignment_created_at) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="接收时间">
-              {{ formatDate(selectedAssignment.received_at) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="答题状态" :span="2">
-              <el-tag :type="getStatusTag(selectedAssignment).type">
-                {{ getStatusTag(selectedAssignment).text }}
-              </el-tag>
-              <span v-if="selectedAssignment.submitted_at" style="margin-left: 10px; color: #909399;">
-                提交时间：{{ formatDate(selectedAssignment.submitted_at) }}
-              </span>
-            </el-descriptions-item>
-          </el-descriptions>
-        </div>
-
-        <div class="detail-content">
-          <h4>📝 题目内容：</h4>
-          <!-- 未答题时只显示题目部分，已答题后显示完整内容 -->
-          <div v-if="!isAnswered(selectedAssignment)" class="content-html markdown-body" v-html="renderMarkdown(splitContentAndAnswer(selectedAssignment.content).question)"></div>
-          <div v-else class="content-html markdown-body" v-html="renderMarkdown(selectedAssignment.content)"></div>
-        </div>
-
-        <!-- 答案与解析提示（未提交时显示） -->
-        <div v-if="!isAnswered(selectedAssignment) && splitContentAndAnswer(selectedAssignment.content).answer" class="answer-section-preview">
-          <el-alert
-            title="提示"
-            type="warning"
-            :closable="false"
-            show-icon
-          >
-            <p>📌 此题目包含答案与解析，提交答案后即可查看</p>
-          </el-alert>
-        </div>
-
-        <!-- 已答题内容展示 -->
-        <div v-if="isAnswered(selectedAssignment)" class="answer-result-section">
-          <el-divider />
-          
-          <div class="my-answer-section">
-            <h4>✍️ 我的答案：</h4>
-            <div class="my-answer-content">
-              {{ selectedAssignment.student_answer }}
-            </div>
-          </div>
-
-          <el-divider />
-
-          <div class="score-analysis-section">
-            <div class="score-display">
-              <h4>📊 得分</h4>
-              <div class="score-badge">{{ selectedAssignment.ai_score }}</div>
-            </div>
-
-            <div class="analysis-display">
-              <h4>💡 AI 分析</h4>
-              <div class="analysis-text markdown-body" v-html="renderMarkdown(selectedAssignment.ai_analysis || '')"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="showDetailDialog = false">关闭</el-button>
-          <el-button 
-            v-if="!isAnswered(selectedAssignment!)"
-            type="success" 
-            :icon="Edit" 
-            @click="startAnswer(selectedAssignment!)"
-          >
-            开始答题
-          </el-button>
-        </span>
-      </template>
-    </el-dialog>
 
     <!-- 评分结果对话框 -->
     <el-dialog
@@ -576,45 +479,6 @@ onMounted(() => {
   gap: 10px;
 }
 
-.assignment-detail {
-  padding: 10px 0;
-}
-
-.detail-info {
-  margin-bottom: 20px;
-}
-
-.detail-content {
-  margin-top: 20px;
-}
-
-.detail-content h4 {
-  margin-bottom: 10px;
-  color: #303133;
-}
-
-.answer-section-preview {
-  margin-top: 20px;
-}
-
-.answer-section-preview :deep(.el-alert) {
-  border-radius: 8px;
-}
-
-.answer-section-preview :deep(.el-alert__description) p {
-  margin: 0;
-  font-size: 14px;
-}
-
-.content-html {
-  background-color: #f5f7fa;
-  padding: 15px;
-  border-radius: 4px;
-  line-height: 1.8;
-  max-height: 500px;
-  overflow-y: auto;
-}
-
 /* Markdown 样式 */
 .markdown-body {
   font-family: inherit;
@@ -716,89 +580,6 @@ onMounted(() => {
   text-decoration-thickness: 1px;
 }
 
-/* 已答题内容展示 */
-.answer-result-section {
-  margin-top: 20px;
-}
-
-.my-answer-section {
-  margin: 20px 0;
-}
-
-.my-answer-section h4 {
-  color: #303133;
-  margin-bottom: 12px;
-}
-
-.my-answer-content {
-  background-color: #f5f7fa;
-  padding: 15px;
-  border-radius: 8px;
-  border-left: 4px solid #909399;
-  white-space: pre-wrap;
-  line-height: 1.8;
-  color: #606266;
-}
-
-.score-analysis-section {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 20px;
-  margin-top: 20px;
-}
-
-.score-display {
-  text-align: center;
-}
-
-.score-display h4 {
-  color: #303133;
-  margin-bottom: 15px;
-}
-
-.score-badge {
-  background: linear-gradient(135deg, #e353c6 0%, #d7040f 100%);
-  color: white;
-  font-size: 32px;
-  font-weight: bold;
-  padding: 30px;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-}
-
-.analysis-display h4 {
-  color: #303133;
-  margin-bottom: 12px;
-}
-
-.analysis-text {
-  background-color: #f5f7fa;
-  padding: 15px;
-  border-radius: 8px;
-  border-left: 4px solid #409EFF;
-  line-height: 1.8;
-  color: #606266;
-}
-
-.content-text {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  background-color: #f5f7fa;
-  padding: 15px;
-  border-radius: 4px;
-  line-height: 1.8;
-  font-family: inherit;
-  margin: 0;
-  max-height: 500px;
-  overflow-y: auto;
-}
-
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 /* 评分结果样式 */
 .result-container {
   padding: 10px;
@@ -856,13 +637,5 @@ onMounted(() => {
     width: 95% !important;
   }
 
-  .score-analysis-section {
-    grid-template-columns: 1fr;
-  }
-
-  .score-badge {
-    padding: 20px;
-    font-size: 28px;
-  }
 }
 </style>
