@@ -141,7 +141,7 @@ const handleRegister = async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #3b77df 0%, #3cb1b7 100%);
 }
 .login-box {
   width: 100%;
