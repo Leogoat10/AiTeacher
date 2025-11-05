@@ -22,7 +22,7 @@ const protectLatexFormulas = (text: string): string => {
   let underscoreCounter = 0
   
   // 先处理块级公式 \[...\]
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (match, formula) => {
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => {
     const placeholder = `${LATEX_PLACEHOLDER_PREFIX}DISPLAY${counter}ENDLATEX`
     latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: true })
     counter++
@@ -30,7 +30,7 @@ const protectLatexFormulas = (text: string): string => {
   })
   
   // 再处理行内公式 \(...\)
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (match, formula) => {
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula) => {
     const placeholder = `${LATEX_PLACEHOLDER_PREFIX}INLINE${counter}ENDLATEX`
     latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: false })
     counter++
@@ -104,10 +104,6 @@ const editDialogVisible = ref(false)
 const editingAnswer = ref<StudentAnswer | null>(null)
 const editScore = ref('')
 const editAnalysis = ref('')
-
-// 详情对话框相关
-const detailDialogVisible = ref(false)
-const detailAnswer = ref<StudentAnswer | null>(null)
 
 // 渲染Markdown
 function renderMarkdown(text: string): string {
@@ -191,8 +187,14 @@ async function saveEdit() {
 
 // 查看详情
 function viewDetail(answer: StudentAnswer) {
-  detailAnswer.value = answer
-  detailDialogVisible.value = true
+  router.push({
+    path: `/teacherViewAnswerDetail/${answer.id}`,
+    query: {
+      studentId: studentId.value.toString(),
+      courseCode: courseCode.value,
+      studentName: studentName.value
+    }
+  })
 }
 
 // 格式化时间
@@ -274,39 +276,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 详情对话框 -->
-    <div v-if="detailDialogVisible" class="modal-overlay" @click="detailDialogVisible = false">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h2>答题详情</h2>
-          <button @click="detailDialogVisible = false" class="close-btn">&times;</button>
-        </div>
-        <div class="modal-body" v-if="detailAnswer">
-          <div class="detail-section">
-            <h3>学生信息</h3>
-            <p><strong>姓名：</strong>{{ studentName }}</p>
-            <p><strong>提交时间：</strong>{{ formatDate(detailAnswer.submittedAt) }}</p>
-          </div>
-          <div class="detail-section">
-            <h3>题目信息</h3>
-            <p><strong>标题：</strong>{{ detailAnswer.assignmentTitle }}</p>
-            <p><strong>内容：</strong></p>
-            <div class="content-box markdown-content" v-html="renderMarkdown(detailAnswer.assignmentContent)"></div>
-          </div>
-          <div class="detail-section">
-            <h3>学生答案</h3>
-            <div class="content-box">{{ detailAnswer.studentAnswer }}</div>
-          </div>
-          <div class="detail-section">
-            <h3>AI评分</h3>
-            <p><strong>评分：</strong>{{ detailAnswer.aiScore }}</p>
-            <p><strong>分析：</strong></p>
-            <div class="content-box markdown-content" v-html="renderMarkdown(detailAnswer.aiAnalysis)"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 编辑对话框 -->
     <div v-if="editDialogVisible" class="modal-overlay" @click="editDialogVisible = false">
       <div class="modal-content" @click.stop>
@@ -320,6 +289,14 @@ onMounted(() => {
           </div>
           <div class="form-group">
             <label>题目：{{ editingAnswer.assignmentTitle }}</label>
+          </div>
+          <div class="form-group">
+            <label>题目内容：</label>
+            <div class="content-box markdown-content" v-html="renderMarkdown(editingAnswer.assignmentContent)"></div>
+          </div>
+          <div class="form-group">
+            <label>学生答案：</label>
+            <div class="content-box">{{ editingAnswer.studentAnswer }}</div>
           </div>
           <div class="form-group">
             <label>评分：</label>
@@ -536,23 +513,6 @@ td {
 
 .modal-body {
   padding: 20px;
-}
-
-.detail-section {
-  margin-bottom: 20px;
-}
-
-.detail-section h3 {
-  font-size: 18px;
-  color: #007bff;
-  margin-bottom: 10px;
-  border-bottom: 2px solid #007bff;
-  padding-bottom: 5px;
-}
-
-.detail-section p {
-  margin: 8px 0;
-  line-height: 1.6;
 }
 
 .content-box {
