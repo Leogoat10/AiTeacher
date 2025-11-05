@@ -211,7 +211,7 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
      */
     private String constructPromptForEvaluation(AssignmentDto assignment, String studentAnswer) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("\n\n你是一位专业的教师，需要对学生的答题进行评分和分析，评分是可酌情给分，主要面向水平中等偏上学生。\n\n");
+        prompt.append("\n\n你是一位专业的教师，需要对学生的每个答题进行评分和分析，评分是可酌情给分，主要面向水平中等偏上学生。\n\n");
         prompt.append("题目标题：").append(assignment.getTitle()).append("\n\n");
         prompt.append("题目内容及标准答案：\n").append(assignment.getContent()).append("\n\n");
         prompt.append("学生的答案：\n").append(studentAnswer).append("\n\n");

@@ -337,12 +337,13 @@ onMounted(() => {
 }
 
 .answer-page-content {
-  max-width: 1200px;
-  margin: 0 auto;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  min-height: calc(100vh - 40px);
+  max-width: 100%;
+  margin: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: auto;
+  padding: 0;
 }
 
 .answer-wrapper {
