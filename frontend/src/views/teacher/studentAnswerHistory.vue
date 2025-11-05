@@ -84,6 +84,22 @@ interface StudentAnswer {
   submittedAt: string;
 }
 
+interface Assignment {
+  id: number;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+interface AssignmentWithStatus extends Assignment {
+  answered: boolean;
+  answerId?: number;
+  studentAnswer?: string;
+  aiScore?: string;
+  aiAnalysis?: string;
+  submittedAt?: string;
+}
+
 const apiClient = axios.create({
   baseURL: '/api',
   withCredentials: true
@@ -97,7 +113,10 @@ const studentName = ref('')
 const studentId = ref<number>(0)
 const courseCode = ref('')
 const studentAnswers = ref<StudentAnswer[]>([])
+const courseAssignments = ref<Assignment[]>([])
+const assignmentsWithStatus = ref<AssignmentWithStatus[]>([])
 const filterAssignmentTitle = ref('')
+const filterStatus = ref<'all' | 'answered' | 'unanswered'>('all')
 
 // 编辑对话框相关
 const editDialogVisible = ref(false)
@@ -118,40 +137,118 @@ function renderMarkdown(text: string): string {
   return DOMPurify.sanitize(withLatex)
 }
 
+// 获取课程的所有题目
+async function fetchCourseAssignments() {
+  try {
+    const res = await apiClient.get(`/assignment/course/${courseCode.value}`)
+    courseAssignments.value = res.data as Assignment[]
+  } catch (err: any) {
+    console.error('获取课程题目失败:', err)
+  }
+}
+
 // 获取学生的答题历史
 async function fetchStudentAnswers() {
-  loading.value = true
-  error.value = null
   try {
     const res = await apiClient.get(`/studentAnswer/student/${studentId.value}/course/${courseCode.value}`)
     studentAnswers.value = res.data as StudentAnswer[]
+  } catch (err: any) {
+    console.error('获取答题历史失败:', err)
+    studentAnswers.value = []
+  }
+}
+
+// 合并课程题目和学生答案
+function mergeAssignmentsWithAnswers() {
+  const answerMap = new Map<number, StudentAnswer>()
+  studentAnswers.value.forEach(answer => {
+    answerMap.set(answer.assignmentId, answer)
+  })
+  
+  assignmentsWithStatus.value = courseAssignments.value.map(assignment => {
+    const answer = answerMap.get(assignment.id)
+    
+    if (answer) {
+      return {
+        ...assignment,
+        answered: true,
+        answerId: answer.id,
+        studentAnswer: answer.studentAnswer,
+        aiScore: answer.aiScore,
+        aiAnalysis: answer.aiAnalysis,
+        submittedAt: answer.submittedAt
+      }
+    } else {
+      return {
+        ...assignment,
+        answered: false
+      }
+    }
+  })
+}
+
+// 加载所有数据
+async function loadAllData() {
+  loading.value = true
+  error.value = null
+  try {
+    await Promise.all([
+      fetchCourseAssignments(),
+      fetchStudentAnswers()
+    ])
+    mergeAssignmentsWithAnswers()
   } catch (err: any) {
     if (err.response?.status === 401) {
       error.value = '未登录或会话失效，请重新登录'
       setTimeout(() => router.push('/teacherLogin'), 2000)
     } else {
-      error.value = '获取答题历史失败: ' + (err.response?.data || err.message)
+      error.value = '获取数据失败: ' + (err.response?.data || err.message)
     }
   } finally {
     loading.value = false
   }
 }
 
-// 过滤后的答题记录
-const filteredAnswers = computed(() => {
-  let results = studentAnswers.value
+// 过滤后的题目列表
+const filteredAssignments = computed(() => {
+  let results = assignmentsWithStatus.value
   
+  // 按标题过滤
   if (filterAssignmentTitle.value) {
     results = results.filter(a => 
-      a.assignmentTitle.toLowerCase().includes(filterAssignmentTitle.value.toLowerCase())
+      a.title.toLowerCase().includes(filterAssignmentTitle.value.toLowerCase())
     )
+  }
+  
+  // 按答题状态过滤
+  if (filterStatus.value === 'answered') {
+    results = results.filter(a => a.answered)
+  } else if (filterStatus.value === 'unanswered') {
+    results = results.filter(a => !a.answered)
   }
   
   return results
 })
 
 // 打开编辑对话框
-function openEditDialog(answer: StudentAnswer) {
+function openEditDialog(assignment: AssignmentWithStatus) {
+  if (!assignment.answered) {
+    ElMessage.warning('该学生尚未提交答案')
+    return
+  }
+  
+  // 构造 StudentAnswer 对象
+  const answer: StudentAnswer = {
+    id: assignment.answerId!,
+    assignmentId: assignment.id,
+    assignmentTitle: assignment.title,
+    assignmentContent: assignment.content,
+    studentAnswer: assignment.studentAnswer!,
+    aiScore: assignment.aiScore!,
+    aiAnalysis: assignment.aiAnalysis!,
+    submittedAt: assignment.submittedAt!
+  }
+  
   editingAnswer.value = answer
   editScore.value = answer.aiScore
   editAnalysis.value = answer.aiAnalysis
@@ -176,6 +273,15 @@ async function saveEdit() {
       studentAnswers.value[index].aiAnalysis = editAnalysis.value
     }
     
+    // 更新合并后的数据
+    const assignmentIndex = assignmentsWithStatus.value.findIndex(
+      a => a.answerId === editingAnswer.value!.id
+    )
+    if (assignmentIndex !== -1) {
+      assignmentsWithStatus.value[assignmentIndex].aiScore = editScore.value
+      assignmentsWithStatus.value[assignmentIndex].aiAnalysis = editAnalysis.value
+    }
+    
     editDialogVisible.value = false
     ElMessage.success('更新成功')
   } catch (err: any) {
@@ -186,9 +292,14 @@ async function saveEdit() {
 }
 
 // 查看详情
-function viewDetail(answer: StudentAnswer) {
+function viewDetail(assignment: AssignmentWithStatus) {
+  if (!assignment.answered) {
+    ElMessage.warning('该学生尚未提交答案')
+    return
+  }
+  
   router.push({
-    path: `/teacherViewAnswerDetail/${answer.id}`,
+    path: `/teacherViewAnswerDetail/${assignment.answerId}`,
     query: {
       studentId: studentId.value.toString(),
       courseCode: courseCode.value,
@@ -221,7 +332,7 @@ onMounted(() => {
   studentName.value = route.query.studentName as string || '学生'
   
   if (studentId.value && courseCode.value) {
-    fetchStudentAnswers()
+    loadAllData()
   } else {
     error.value = '参数错误'
   }
@@ -245,33 +356,55 @@ onMounted(() => {
           <label>题目标题：</label>
           <input v-model="filterAssignmentTitle" type="text" placeholder="搜索题目标题">
         </div>
+        <div class="filter-item">
+          <label>答题状态：</label>
+          <select v-model="filterStatus" class="filter-select">
+            <option value="all">全部</option>
+            <option value="answered">已答题</option>
+            <option value="unanswered">未答题</option>
+          </select>
+        </div>
       </div>
 
-      <!-- 答题记录表格 -->
+      <!-- 题目列表表格 -->
       <div class="table-container">
-        <table v-if="filteredAnswers.length > 0">
+        <table v-if="filteredAssignments.length > 0">
           <thead>
             <tr>
               <th>题目标题</th>
+              <th>状态</th>
               <th>评分</th>
               <th>提交时间</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="answer in filteredAnswers" :key="answer.id">
-              <td>{{ answer.assignmentTitle }}</td>
-              <td>{{ answer.aiScore }}</td>
-              <td>{{ formatDate(answer.submittedAt) }}</td>
+            <tr v-for="assignment in filteredAssignments" :key="assignment.id" :class="{ 'unanswered-row': !assignment.answered }">
+              <td>{{ assignment.title }}</td>
               <td>
-                <button @click="viewDetail(answer)" class="btn-view">查看详情</button>
-                <button @click="openEditDialog(answer)" class="btn-edit">修改评分</button>
+                <span v-if="assignment.answered" class="status-badge status-answered">已答题</span>
+                <span v-else class="status-badge status-unanswered">未答题</span>
+              </td>
+              <td>{{ assignment.answered ? assignment.aiScore : '-' }}</td>
+              <td>{{ assignment.answered ? formatDate(assignment.submittedAt!) : '-' }}</td>
+              <td>
+                <button 
+                  v-if="assignment.answered" 
+                  @click="viewDetail(assignment)" 
+                  class="btn-view"
+                >查看详情</button>
+                <button 
+                  v-if="assignment.answered" 
+                  @click="openEditDialog(assignment)" 
+                  class="btn-edit"
+                >修改评分</button>
+                <span v-if="!assignment.answered" class="no-action">-</span>
               </td>
             </tr>
           </tbody>
         </table>
         <div v-else class="no-data">
-          该学生暂无答题记录
+          没有找到匹配的题目
         </div>
       </div>
     </div>
@@ -384,12 +517,21 @@ onMounted(() => {
   font-weight: bold;
 }
 
-.filter-item input {
+.filter-item input,
+.filter-item .filter-select {
   padding: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.filter-item input {
   min-width: 300px;
+}
+
+.filter-item .filter-select {
+  min-width: 150px;
+  cursor: pointer;
 }
 
 .table-container {
@@ -423,8 +565,39 @@ tbody tr:hover {
   background-color: #f8f9fa;
 }
 
+tbody tr.unanswered-row {
+  background-color: #fef8f8;
+}
+
+tbody tr.unanswered-row:hover {
+  background-color: #fef0f0;
+}
+
 td {
   padding: 12px 15px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-answered {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-unanswered {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.no-action {
+  color: #999;
+  font-style: italic;
 }
 
 .btn-view, .btn-edit {
