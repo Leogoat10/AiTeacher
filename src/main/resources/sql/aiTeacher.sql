@@ -161,4 +161,50 @@ CREATE INDEX idx_student_answers_assignment
     ON aiteacher.student_answers (assignment_id);
 
 
+-- =========================
+-- Phase 1: AI出题任务化与结构化支持
+-- =========================
+
+CREATE TABLE IF NOT EXISTS aiteacher.generation_tasks
+(
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id      INT                                  NOT NULL COMMENT '教师ID',
+    conversation_id INT                                  NOT NULL COMMENT '会话ID',
+    status          VARCHAR(50)                          NOT NULL COMMENT '任务状态：PENDING/RUNNING/SUCCESS/FAILED/COMPLETED_WITH_WARNINGS',
+    subject         VARCHAR(100)                         NOT NULL COMMENT '科目',
+    grade           VARCHAR(100)                         NOT NULL COMMENT '年级',
+    difficulty      VARCHAR(50)                          NOT NULL COMMENT '难度',
+    question_type   VARCHAR(50)                          NOT NULL COMMENT '题型',
+    question_count  INT                                  NOT NULL COMMENT '题量',
+    custom_message  TEXT                                 NULL COMMENT '自定义要求',
+    request_prompt  TEXT                                 NULL COMMENT '最终请求Prompt',
+    raw_response    LONGTEXT                             NULL COMMENT '模型原始返回',
+    result_json     LONGTEXT                             NULL COMMENT '结构化结果(JSON)',
+    error_message   VARCHAR(500)                         NULL COMMENT '失败原因',
+    quality_passed  TINYINT(1) DEFAULT 0                NOT NULL COMMENT '质量校验是否通过',
+    created_at      TIMESTAMP  DEFAULT CURRENT_TIMESTAMP NULL,
+    updated_at      TIMESTAMP  DEFAULT CURRENT_TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+    completed_at    TIMESTAMP                            NULL,
+    CONSTRAINT fk_gt_teacher
+        FOREIGN KEY (teacher_id) REFERENCES aiteacher.teachers (teacher_id)
+            ON DELETE CASCADE,
+    CONSTRAINT fk_gt_conversation
+        FOREIGN KEY (conversation_id) REFERENCES aiteacher.conversations (id)
+            ON DELETE CASCADE
+);
+
+CREATE INDEX idx_generation_tasks_teacher
+    ON aiteacher.generation_tasks (teacher_id);
+
+CREATE INDEX idx_generation_tasks_conversation
+    ON aiteacher.generation_tasks (conversation_id);
+
+CREATE INDEX idx_generation_tasks_status
+    ON aiteacher.generation_tasks (status);
+
+ALTER TABLE aiteacher.messages
+    ADD COLUMN user_prompt TEXT NULL COMMENT '用户真实请求 Prompt',
+    ADD COLUMN raw_model_response LONGTEXT NULL COMMENT '模型原始返回',
+    ADD COLUMN structured_status VARCHAR(50) NULL COMMENT '结构化处理状态';
+
 

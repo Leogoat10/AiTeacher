@@ -271,6 +271,7 @@ const chatHistory = ref<Array<{
 }>>([])
 
 const loading = ref(false)
+const taskStatusText = ref('')
 const selectedMessages = ref<Set<number>>(new Set())
 let messageIdCounter = 0
 
@@ -378,10 +379,11 @@ const send = async () => {
   })
 
   loading.value = true
+  taskStatusText.value = '任务已提交，等待AI生成...'
 
   try {
-    // 发送表单数据到后端（与plan.vue保持一致）
-    const res = await apiClient.post('/teacher/question',
+    // V2: 提交异步生成任务
+    const taskRes = await apiClient.post('/teacher/question/v2/tasks',
         {
           subject: subject.value,
           grade: grade.value.toString(),
@@ -392,37 +394,104 @@ const send = async () => {
           conversationId: currentConversationId.value
         })
 
-    if (res.data.success) {
-      // 仅当后端返回 newConversationId 时才更新 currentConversationId
-      if (res.data.newConversationId !== undefined && res.data.newConversationId !== null) {
-        currentConversationId.value = res.data.newConversationId
-      }
-      // 处理 AI 返回的 Markdown 内容
-      const markdownContent = res.data.reply || ''
-      // 1. 提取并保护 LaTeX 公式
-      const protectedText = protectLatexFormulas(markdownContent)
-      // 2. 解析 Markdown
-      const html = await marked.parse(protectedText)
-      // 3. 渲染被保护的 LaTeX 公式
-      const withLatex = renderProtectedLatex(html)
-      // 4. 清理 HTML
-      const htmlContent = DOMPurify.sanitize(withLatex)
+    if (!taskRes.data.success) {
+      ElMessage.error('任务创建失败: ' + (taskRes.data.error || '未知错误'))
+      chatHistory.value.push({
+        role: 'ai',
+        content: '任务创建失败，请稍后重试。',
+        timestamp: new Date(),
+        id: messageIdCounter++
+      })
+      return
+    }
 
+    // 仅当后端返回 newConversationId 时才更新 currentConversationId
+    if (taskRes.data.newConversationId !== undefined && taskRes.data.newConversationId !== null) {
+      currentConversationId.value = taskRes.data.newConversationId
+    } else if (taskRes.data.conversationId !== undefined && taskRes.data.conversationId !== null) {
+      currentConversationId.value = taskRes.data.conversationId
+    }
+
+    const taskId = taskRes.data.taskId
+    const maxAttempts = 60
+    let attempt = 0
+    let finalStatusRes: any = null
+
+    while (attempt < maxAttempts) {
+      attempt++
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      const statusRes = await apiClient.get(`/teacher/question/v2/tasks/${taskId}`)
+
+      if (!statusRes.data.success) {
+        throw new Error(statusRes.data.error || '查询任务状态失败')
+      }
+
+      const status = statusRes.data.status
+      taskStatusText.value = `任务状态：${status}`
+
+      if (status === 'SUCCESS' || status === 'COMPLETED_WITH_WARNINGS' || status === 'FAILED') {
+        finalStatusRes = statusRes.data
+        break
+      }
+    }
+
+    if (!finalStatusRes) {
+      throw new Error('任务超时，请稍后在历史对话中查看结果')
+    }
+
+    if (finalStatusRes.status === 'FAILED') {
+      ElMessage.error(finalStatusRes.errorMessage || '生成失败')
       chatHistory.value.push({
         role: 'ai',
-        content: htmlContent,      // 用于显示的HTML内容
-        rawContent: markdownContent, // 用于导出的原始Markdown内容
+        content: `生成失败：${finalStatusRes.errorMessage || '未知错误'}`,
         timestamp: new Date(),
         id: messageIdCounter++
       })
+      return
+    }
+
+    // 使用任务结构化结果渲染
+    const result = finalStatusRes.result || {}
+    const questions = result.questions || []
+    const issues = result.issues || []
+
+    const markdownParts: string[] = []
+    questions.forEach((q: any, idx: number) => {
+      markdownParts.push(`${idx + 1}. ${q.stem || ''}`)
+      if (Array.isArray(q.options) && q.options.length > 0) {
+        q.options.forEach((opt: string) => markdownParts.push(`   ${opt}`))
+      }
+      markdownParts.push(`   答案：${q.answer || ''}`)
+      if (q.analysis) markdownParts.push(`   解析：${q.analysis}`)
+      markdownParts.push('')
+    })
+
+    if (Array.isArray(issues) && issues.length > 0) {
+      markdownParts.push('---')
+      markdownParts.push('质量提示：')
+      issues.forEach((it: any) => {
+        markdownParts.push(`- [${it.severity}] 第${it.questionIndex}题：${it.message}`)
+      })
+    }
+
+    const markdownContent = markdownParts.join('\n').trim()
+    const protectedText = protectLatexFormulas(markdownContent)
+    const html = await marked.parse(protectedText)
+    const withLatex = renderProtectedLatex(html)
+    const htmlContent = DOMPurify.sanitize(withLatex)
+
+    chatHistory.value.push({
+      role: 'ai',
+      content: htmlContent,
+      rawContent: markdownContent,
+      timestamp: new Date(),
+      id: messageIdCounter++
+    })
+
+    if (finalStatusRes.status === 'COMPLETED_WITH_WARNINGS') {
+      ElMessage.warning('题目已生成，但存在质量警告，请人工复核')
     } else {
-      ElMessage.error('AI服务错误: ' + (res.data.error || '未知错误'))
-      chatHistory.value.push({
-        role: 'ai',
-        content: '抱歉，AI服务暂时不可用，请稍后重试。',
-        timestamp: new Date(),
-        id: messageIdCounter++
-      })
+      ElMessage.success('题目生成完成')
     }
   } catch (err: any) {
     console.error('API调用错误:', err)
@@ -460,6 +529,7 @@ const send = async () => {
     }
   } finally {
     loading.value = false
+    taskStatusText.value = ''
   }
 }
 
@@ -833,6 +903,7 @@ const sendAssignmentToCourse = async () => {
         <div v-if="loading" class="loading">
           <el-icon class="is-loading"><Loading /></el-icon>
           <span>AI正在思考中...</span>
+          <div v-if="taskStatusText" class="task-status">{{ taskStatusText }}</div>
         </div>
       </div>
     </div>
@@ -1054,6 +1125,12 @@ line-height: 1.6;
 text-align: center;
 padding: 20px;
 color: #666;
+}
+
+.task-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #909399;
 }
 
 @media (max-width: 768px) {

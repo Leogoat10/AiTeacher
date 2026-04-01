@@ -2,6 +2,7 @@
 package com.leo.aiteacher.controller;
 
 import com.leo.aiteacher.service.TeachingPlanQueService;
+import com.leo.aiteacher.service.QuestionGenerationTaskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,60 +23,70 @@ public class AiTeacherController {
     @Autowired
     private TeachingPlanQueService teachingPlanQueService;
 
+    @Autowired
+    private QuestionGenerationTaskService questionGenerationTaskService;
+
     /**
-     * 处理教学问题生成请求（新版：接收表单数据）
-     * @param requestData 包含表单数据：subject, difficulty, questionType, questionCount, customMessage, conversationId
-     * @return 响应实体，包含生成的教学问题或错误信息
+     * V2: 创建异步生成任务（Phase 1）
      */
-    // todo: 教师的教学计划接口暂时保留，后续完善
-    @PostMapping("/plan")
-    public ResponseEntity<?> generateTeachingPlan(@RequestBody Map<String, Object> requestData) {
-        return null;
+    @PostMapping("/question/v2/tasks")
+    public ResponseEntity<?> createQuestionTask(@RequestBody Map<String, Object> requestData) {
+        try {
+            if (requestData == null || requestData.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "success", false,
+                        "error", "请求数据不能为空"
+                ));
+            }
+
+            Integer conversationId = null;
+            if (requestData.get("conversationId") instanceof Number number) {
+                conversationId = number.intValue();
+            }
+            String subject = (String) requestData.get("subject");
+            String grade = requestData.get("grade") == null ? null : requestData.get("grade").toString();
+            String difficulty = (String) requestData.get("difficulty");
+            String questionType = (String) requestData.get("questionType");
+            String questionCount = requestData.get("questionCount") == null ? null : requestData.get("questionCount").toString();
+            String customMessage = requestData.get("customMessage") == null ? null : requestData.get("customMessage").toString();
+
+            Map<String, Object> result = questionGenerationTaskService.createGenerationTask(
+                    subject, grade, difficulty, questionType, questionCount, customMessage, conversationId
+            );
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("创建题目任务异常: ", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
     }
 
     /**
-     * 处理教学问题生成请求（新版：接收表单数据）
-     * @param requestData 包含表单数据：subject, difficulty, questionType, questionCount, customMessage, conversationId
-     * @return 响应实体，包含生成的教学问题或错误信息
+     * V2: 查询任务状态（Phase 1）
      */
-    @PostMapping("/question")
-    public ResponseEntity<?> createTeachingQuestion(@RequestBody Map<String, Object> requestData) {
-        logger.info("接收到的数据: {}", requestData);
+    @GetMapping("/question/v2/tasks/{taskId}")
+    public ResponseEntity<?> getQuestionTaskStatus(@PathVariable Long taskId) {
         try {
-            if (requestData == null || requestData.isEmpty()) {
-                logger.warn("请求数据不能为空");
-                return ResponseEntity.badRequest().body("请求数据不能为空");
-            }
-
-            Integer conversationId = (Integer) requestData.get("conversationId");
-            String subject = (String) requestData.get("subject");
-            String grade = (String) requestData.get("grade");
-            String difficulty = (String) requestData.get("difficulty");
-            String questionType = (String) requestData.get("questionType");
-            String questionCount = (String) requestData.get("questionCount");
-            String customMessage = (String) requestData.get("customMessage");
-
-            Map<String, Object> result = teachingPlanQueService.generateTeachingQuestion(
-                subject, grade,difficulty, questionType, questionCount, customMessage, conversationId
-            );
-
-            if (result.containsKey("success") && (Boolean) result.get("success")) {
+            Map<String, Object> result = questionGenerationTaskService.getGenerationTaskStatus(taskId);
+            if (Boolean.TRUE.equals(result.get("success"))) {
                 return ResponseEntity.ok(result);
-            } else {
-                int status = result.containsKey("status") ? (int) result.get("status") : 500;
-                return ResponseEntity.status(status).body(result);
             }
-
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
         } catch (Exception e) {
-            logger.error("Internal Error: ", e);
-
-            Map<String, Object> errorResponse = Map.of(
-                "success", false,
-                "error", "内部错误",
-                "message", e.getMessage()
-            );
-
-            return ResponseEntity.status(500).body(errorResponse);
+            logger.error("查询题目任务状态异常: ", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
         }
     }
 
