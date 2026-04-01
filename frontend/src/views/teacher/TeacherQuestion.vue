@@ -266,12 +266,31 @@ const chatHistory = ref<Array<{
   role: string;
   content: string;
   rawContent?: string;  // 添加原始内容字段
+  structuredQuestions?: Array<{
+    stem: string;
+    type: string;
+    options: string[];
+    answer: string;
+    analysis?: string;
+    score?: number;
+    difficulty?: string;
+  }>;
+  qualityIssues?: Array<{
+    severity: string;
+    questionIndex: number;
+    message: string;
+  }>;
   timestamp: Date;
   id: number
 }>>([])
 
 const loading = ref(false)
 const taskStatusText = ref('')
+const taskStatus = ref<'IDLE' | 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'COMPLETED_WITH_WARNINGS'>('IDLE')
+const taskProgress = ref(0)
+const taskErrorMessage = ref('')
+const currentTaskId = ref<number | null>(null)
+const lastRequestPayload = ref<any>(null)
 const selectedMessages = ref<Set<number>>(new Set())
 let messageIdCounter = 0
 
@@ -329,83 +348,78 @@ const educationOptions = [
   }
 ]
 
-const send = async () => {
-  // 验证必填字段
-  if (!subject.value.trim()) {
-    ElMessage.warning('请输入科目/专业')
-    return
-  }
+const statusProgressMap: Record<string, number> = {
+  PENDING: 15,
+  RUNNING: 60,
+  SUCCESS: 100,
+  COMPLETED_WITH_WARNINGS: 100,
+  FAILED: 100
+}
 
-  if (!grade.value) {
-    ElMessage.warning('请选择年级')
-    return
-  }
+const statusTypeMap: Record<string, 'info' | 'warning' | 'success' | 'danger'> = {
+  PENDING: 'info',
+  RUNNING: 'warning',
+  SUCCESS: 'success',
+  COMPLETED_WITH_WARNINGS: 'warning',
+  FAILED: 'danger'
+}
 
-  if (!difficulty.value) {
-    ElMessage.warning('请选择难易程度')
-    return
-  }
+const statusLabelMap: Record<string, string> = {
+  PENDING: '排队中',
+  RUNNING: '生成中',
+  SUCCESS: '生成成功',
+  COMPLETED_WITH_WARNINGS: '生成成功（需复核）',
+  FAILED: '生成失败'
+}
 
-  if (!questionType.value) {
-    ElMessage.warning('请选择题型')
-    return
-  }
+const taskStatusTagType = computed(() => statusTypeMap[taskStatus.value] || 'info')
+const taskStatusLabel = computed(() => statusLabelMap[taskStatus.value] || '等待中')
 
-  // 验证题目数
-  if (!questionCount.value) {
-    ElMessage.warning('请输入题目数量')
-    return
-  }
-
-  if (isNaN(Number(questionCount.value)) || Number(questionCount.value) <= 0) {
-    ElMessage.warning('题目数必须为大于0的数字')
-    return
-  }
-
-  // 添加用户消息（显示用）
-  let userDisplayMessage = `${subject.value} ${grade.value} ${difficulty.value} ${questionType.value}`
-  if (questionCount.value) {
-    userDisplayMessage += ` (${questionCount.value}题)`
-  }
-  if (customMessage.value.trim()) {
-    userDisplayMessage += ` - ${customMessage.value}`
-  }
-
-  chatHistory.value.push({
-    role: 'user',
-    content: userDisplayMessage,
-    timestamp: new Date(),
-    id: messageIdCounter++
+const buildMarkdownFromResult = (questions: any[], issues: any[]) => {
+  const markdownParts: string[] = []
+  questions.forEach((q: any, idx: number) => {
+    markdownParts.push(`${idx + 1}. ${q.stem || ''}`)
+    if (Array.isArray(q.options) && q.options.length > 0) {
+      q.options.forEach((opt: string) => markdownParts.push(`   ${opt}`))
+    }
+    markdownParts.push(`   答案：${q.answer || ''}`)
+    if (q.analysis) markdownParts.push(`   解析：${q.analysis}`)
+    markdownParts.push('')
   })
 
+  if (Array.isArray(issues) && issues.length > 0) {
+    markdownParts.push('---')
+    markdownParts.push('质量提示：')
+    issues.forEach((it: any) => {
+      markdownParts.push(`- [${it.severity}] 第${it.questionIndex}题：${it.message}`)
+    })
+  }
+  return markdownParts.join('\n').trim()
+}
+
+const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) => {
+  if (pushRetryUserMessage) {
+    chatHistory.value.push({
+      role: 'user',
+      content: '按相同参数重试生成',
+      timestamp: new Date(),
+      id: messageIdCounter++
+    })
+  }
+
   loading.value = true
+  taskStatus.value = 'PENDING'
+  taskProgress.value = 10
+  taskErrorMessage.value = ''
   taskStatusText.value = '任务已提交，等待AI生成...'
 
   try {
-    // V2: 提交异步生成任务
-    const taskRes = await apiClient.post('/teacher/question/v2/tasks',
-        {
-          subject: subject.value,
-          grade: grade.value.toString(),
-          difficulty: difficulty.value,
-          questionType: questionType.value,
-          questionCount: questionCount.value,
-          customMessage: customMessage.value || null,
-          conversationId: currentConversationId.value
-        })
+    const taskRes = await apiClient.post('/teacher/question/v2/tasks', payload)
 
     if (!taskRes.data.success) {
-      ElMessage.error('任务创建失败: ' + (taskRes.data.error || '未知错误'))
-      chatHistory.value.push({
-        role: 'ai',
-        content: '任务创建失败，请稍后重试。',
-        timestamp: new Date(),
-        id: messageIdCounter++
-      })
-      return
+      throw new Error(taskRes.data.error || '任务创建失败')
     }
 
-    // 仅当后端返回 newConversationId 时才更新 currentConversationId
     if (taskRes.data.newConversationId !== undefined && taskRes.data.newConversationId !== null) {
       currentConversationId.value = taskRes.data.newConversationId
     } else if (taskRes.data.conversationId !== undefined && taskRes.data.conversationId !== null) {
@@ -413,6 +427,7 @@ const send = async () => {
     }
 
     const taskId = taskRes.data.taskId
+    currentTaskId.value = taskId
     const maxAttempts = 60
     let attempt = 0
     let finalStatusRes: any = null
@@ -421,13 +436,14 @@ const send = async () => {
       attempt++
       await new Promise(resolve => setTimeout(resolve, 1000))
       const statusRes = await apiClient.get(`/teacher/question/v2/tasks/${taskId}`)
-
       if (!statusRes.data.success) {
         throw new Error(statusRes.data.error || '查询任务状态失败')
       }
 
       const status = statusRes.data.status
-      taskStatusText.value = `任务状态：${status}`
+      taskStatus.value = status
+      taskProgress.value = statusProgressMap[status] ?? 40
+      taskStatusText.value = `任务状态：${statusLabelMap[status] || status}`
 
       if (status === 'SUCCESS' || status === 'COMPLETED_WITH_WARNINGS' || status === 'FAILED') {
         finalStatusRes = statusRes.data
@@ -440,41 +456,15 @@ const send = async () => {
     }
 
     if (finalStatusRes.status === 'FAILED') {
-      ElMessage.error(finalStatusRes.errorMessage || '生成失败')
-      chatHistory.value.push({
-        role: 'ai',
-        content: `生成失败：${finalStatusRes.errorMessage || '未知错误'}`,
-        timestamp: new Date(),
-        id: messageIdCounter++
-      })
-      return
+      taskErrorMessage.value = finalStatusRes.errorMessage || '未知错误'
+      throw new Error(taskErrorMessage.value)
     }
 
-    // 使用任务结构化结果渲染
     const result = finalStatusRes.result || {}
-    const questions = result.questions || []
-    const issues = result.issues || []
+    const questions = Array.isArray(result.questions) ? result.questions : []
+    const issues = Array.isArray(result.issues) ? result.issues : []
+    const markdownContent = buildMarkdownFromResult(questions, issues)
 
-    const markdownParts: string[] = []
-    questions.forEach((q: any, idx: number) => {
-      markdownParts.push(`${idx + 1}. ${q.stem || ''}`)
-      if (Array.isArray(q.options) && q.options.length > 0) {
-        q.options.forEach((opt: string) => markdownParts.push(`   ${opt}`))
-      }
-      markdownParts.push(`   答案：${q.answer || ''}`)
-      if (q.analysis) markdownParts.push(`   解析：${q.analysis}`)
-      markdownParts.push('')
-    })
-
-    if (Array.isArray(issues) && issues.length > 0) {
-      markdownParts.push('---')
-      markdownParts.push('质量提示：')
-      issues.forEach((it: any) => {
-        markdownParts.push(`- [${it.severity}] 第${it.questionIndex}题：${it.message}`)
-      })
-    }
-
-    const markdownContent = markdownParts.join('\n').trim()
     const protectedText = protectLatexFormulas(markdownContent)
     const html = await marked.parse(protectedText)
     const withLatex = renderProtectedLatex(html)
@@ -484,6 +474,16 @@ const send = async () => {
       role: 'ai',
       content: htmlContent,
       rawContent: markdownContent,
+      structuredQuestions: questions.map((q: any) => ({
+        stem: q.stem || '',
+        type: q.type || '',
+        options: Array.isArray(q.options) ? q.options : [],
+        answer: q.answer || '',
+        analysis: q.analysis || '',
+        score: q.score,
+        difficulty: q.difficulty
+      })),
+      qualityIssues: issues,
       timestamp: new Date(),
       id: messageIdCounter++
     })
@@ -494,43 +494,86 @@ const send = async () => {
       ElMessage.success('题目生成完成')
     }
   } catch (err: any) {
-    console.error('API调用错误:', err)
-    if (err.response) {
-      if (err.response.status === 401) {
-        // 未登录或会话过期
-        ElMessage.error('未登录或会话已过期，请先登录')
-        // 可选：跳转到登录页，路由路径根据项目实际路由调整
-        router.push('/')
-        chatHistory.value.push({
-          role: 'ai',
-          content: '未登录或会话已过期，请先登录后重试。',
-          timestamp: new Date(),
-          id: messageIdCounter++
-        })
-      } else {
-        ElMessage.error('AI服务错误: ' + (err.response.data?.error || '未知错误'))
-        chatHistory.value.push({
-          role: 'ai',
-          content: 'AI服务错误: ' + (err.response.data?.error || '未知错误'),
-          timestamp: new Date(),
-          id: messageIdCounter++
-        })
-      }
-    } else if (err.request) {
-      ElMessage.error('网络连接失败，请检查服务是否启动')
-      chatHistory.value.push({
-        role: 'ai',
-        content: '网络连接失败，请检查：\n1. 后端服务是否启动\n2. 网络连接是否正常',
-        timestamp: new Date(),
-        id: messageIdCounter++
-      })
+    console.error('任务处理错误:', err)
+    taskStatus.value = 'FAILED'
+    taskProgress.value = 100
+    taskErrorMessage.value = err?.message || '未知错误'
+
+    if (err.response?.status === 401) {
+      ElMessage.error('未登录或会话已过期，请先登录')
+      router.push('/')
     } else {
-      ElMessage.error('请求配置错误')
+      ElMessage.error('生成失败: ' + taskErrorMessage.value)
     }
+
+    chatHistory.value.push({
+      role: 'ai',
+      content: `生成失败：${taskErrorMessage.value}`,
+      timestamp: new Date(),
+      id: messageIdCounter++
+    })
   } finally {
     loading.value = false
     taskStatusText.value = ''
   }
+}
+
+const retryLastTask = async () => {
+  if (!lastRequestPayload.value) {
+    ElMessage.warning('没有可重试的任务参数')
+    return
+  }
+  await submitGenerationTask(lastRequestPayload.value, true)
+}
+
+const send = async () => {
+  if (!subject.value.trim()) {
+    ElMessage.warning('请输入科目/专业')
+    return
+  }
+  if (!grade.value) {
+    ElMessage.warning('请选择年级')
+    return
+  }
+  if (!difficulty.value) {
+    ElMessage.warning('请选择难易程度')
+    return
+  }
+  if (!questionType.value) {
+    ElMessage.warning('请选择题型')
+    return
+  }
+  if (!questionCount.value) {
+    ElMessage.warning('请输入题目数量')
+    return
+  }
+  if (isNaN(Number(questionCount.value)) || Number(questionCount.value) <= 0) {
+    ElMessage.warning('题目数必须为大于0的数字')
+    return
+  }
+
+  let userDisplayMessage = `${subject.value} ${grade.value} ${difficulty.value} ${questionType.value}`
+  if (questionCount.value) userDisplayMessage += ` (${questionCount.value}题)`
+  if (customMessage.value.trim()) userDisplayMessage += ` - ${customMessage.value}`
+
+  chatHistory.value.push({
+    role: 'user',
+    content: userDisplayMessage,
+    timestamp: new Date(),
+    id: messageIdCounter++
+  })
+
+  const payload = {
+    subject: subject.value,
+    grade: grade.value.toString(),
+    difficulty: difficulty.value,
+    questionType: questionType.value,
+    questionCount: questionCount.value,
+    customMessage: customMessage.value || null,
+    conversationId: currentConversationId.value
+  }
+  lastRequestPayload.value = payload
+  await submitGenerationTask(payload, false)
 }
 
 // 添加清空表单的方法
@@ -873,6 +916,21 @@ const sendAssignmentToCourse = async () => {
 
       <!-- 右侧AI对话区域 -->
       <div class="chat-container">
+        <div v-if="loading || taskStatus === 'FAILED'" class="task-panel">
+          <div class="task-panel-header">
+            <span>生成任务</span>
+            <el-tag :type="taskStatusTagType" size="small">{{ taskStatusLabel }}</el-tag>
+          </div>
+          <el-progress :percentage="taskProgress" :status="taskStatus === 'FAILED' ? 'exception' : undefined" />
+          <div class="task-panel-text">
+            <span v-if="taskStatusText">{{ taskStatusText }}</span>
+            <span v-else-if="taskStatus === 'FAILED'">失败原因：{{ taskErrorMessage || '未知错误' }}</span>
+          </div>
+          <div class="task-panel-actions" v-if="taskStatus === 'FAILED' && !loading">
+            <el-button size="small" type="danger" plain @click="retryLastTask">重试本次参数</el-button>
+          </div>
+        </div>
+
         <div
           v-for="(chat) in chatHistory"
           :key="chat.id"
@@ -895,7 +953,42 @@ const sendAssignmentToCourse = async () => {
             :shadow="chat.role === 'user' ? 'never' : 'hover'"
             :class="['message-content', chat.role]"
           >
-            <div v-if="chat.role === 'ai'" class="markdown-body" v-html="chat.content"></div>
+            <template v-if="chat.role === 'ai'">
+              <div v-if="chat.structuredQuestions && chat.structuredQuestions.length > 0" class="question-cards">
+                <div
+                  v-for="(q, idx) in chat.structuredQuestions"
+                  :key="`${chat.id}-${idx}`"
+                  class="question-card"
+                >
+                  <div class="question-card-title">
+                    <strong>第{{ idx + 1 }}题</strong>
+                    <div class="question-card-tags">
+                      <el-tag size="small" type="info">{{ q.type || '未分类' }}</el-tag>
+                      <el-tag size="small" type="success" v-if="q.difficulty">{{ q.difficulty }}</el-tag>
+                      <el-tag size="small" type="warning" v-if="q.score">分值 {{ q.score }}</el-tag>
+                    </div>
+                  </div>
+                  <div class="question-card-stem">{{ q.stem }}</div>
+                  <div class="question-card-options" v-if="q.options && q.options.length > 0">
+                    <div v-for="(opt, optIdx) in q.options" :key="`${chat.id}-${idx}-opt-${optIdx}`">{{ opt }}</div>
+                  </div>
+                  <div class="question-card-answer">答案：{{ q.answer }}</div>
+                  <div class="question-card-analysis" v-if="q.analysis">解析：{{ q.analysis }}</div>
+                </div>
+
+                <div v-if="chat.qualityIssues && chat.qualityIssues.length > 0" class="quality-issues">
+                  <div class="quality-issues-title">质量提示</div>
+                  <div
+                    class="quality-issue-item"
+                    v-for="(issue, issueIdx) in chat.qualityIssues"
+                    :key="`${chat.id}-issue-${issueIdx}`"
+                  >
+                    [{{ issue.severity }}] 第{{ issue.questionIndex }}题：{{ issue.message }}
+                  </div>
+                </div>
+              </div>
+              <div v-else class="markdown-body" v-html="chat.content"></div>
+            </template>
             <pre v-else>{{ chat.content }}</pre>
           </el-card>
         </div>
@@ -1131,6 +1224,100 @@ color: #666;
   margin-top: 8px;
   font-size: 12px;
   color: #909399;
+}
+
+.task-panel {
+  background: #ffffff;
+  border: 1px solid #e4e7ed;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.task-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.task-panel-text {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #606266;
+}
+
+.task-panel-actions {
+  margin-top: 10px;
+}
+
+.question-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.question-card {
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fcfcfd;
+}
+
+.question-card-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.question-card-tags {
+  display: flex;
+  gap: 6px;
+}
+
+.question-card-stem {
+  font-weight: 500;
+  color: #303133;
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.question-card-options {
+  background: #f7f8fa;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.question-card-answer {
+  color: #67c23a;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.question-card-analysis {
+  color: #606266;
+  line-height: 1.6;
+}
+
+.quality-issues {
+  border-top: 1px dashed #dcdfe6;
+  padding-top: 8px;
+}
+
+.quality-issues-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e6a23c;
+  margin-bottom: 4px;
+}
+
+.quality-issue-item {
+  color: #e6a23c;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 @media (max-width: 768px) {
