@@ -309,7 +309,7 @@ const questionCount = ref('')
 const customMessage = ref('')
 const contextInstruction = ref('')
 const useRecentContext = ref(false)
-const contextRounds = ref(5)
+const CONTEXT_ROUNDS = 5
 const educationOptions = [
   {
     value: '小学',
@@ -394,9 +394,9 @@ const canSubmit = computed(() => {
 })
 const taskContextText = computed(() => {
   const useContext = lastRequestPayload.value?.useContext
-  const rounds = lastRequestPayload.value?.contextRounds || contextRounds.value
+  const rounds = lastRequestPayload.value?.contextRounds || CONTEXT_ROUNDS
   if (useContext === undefined) {
-    return useRecentContext.value ? `本次任务将关联最近${contextRounds.value}轮上下文` : '本次任务不关联历史上下文'
+    return useRecentContext.value ? `本次任务将关联最近${CONTEXT_ROUNDS}轮上下文` : '本次任务不关联历史上下文'
   }
   return useContext ? `本次任务将关联最近${rounds}轮上下文` : '本次任务不关联历史上下文'
 })
@@ -479,7 +479,7 @@ const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) 
     }
 
     const taskUseContext = taskRes.data.useContext ?? payload.useContext ?? true
-    const taskContextRounds = taskRes.data.contextRounds ?? payload.contextRounds ?? 5
+    const taskContextRounds = taskRes.data.contextRounds ?? payload.contextRounds ?? CONTEXT_ROUNDS
 
     if (taskRes.data.newConversationId !== undefined && taskRes.data.newConversationId !== null) {
       currentConversationId.value = taskRes.data.newConversationId
@@ -548,7 +548,7 @@ const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) 
       })),
       qualityIssues: issues,
       contextUsed: !!taskUseContext,
-      contextRounds: Number(taskContextRounds) || 5,
+      contextRounds: Number(taskContextRounds) || CONTEXT_ROUNDS,
       timestamp: new Date(),
       id: messageIdCounter++
     })
@@ -630,7 +630,7 @@ const send = async () => {
 
   let userDisplayMessage = ''
   if (useRecentContext.value) {
-    userDisplayMessage = `上下文增量指令：${contextInstruction.value.trim()} [关联最近${contextRounds.value}轮上下文]`
+    userDisplayMessage = `上下文增量指令：${contextInstruction.value.trim()} [关联最近${CONTEXT_ROUNDS}轮上下文]`
   } else {
     userDisplayMessage = `${subject.value} ${grade.value} ${difficulty.value} ${questionType.value}`
     if (questionCount.value) userDisplayMessage += ` (${questionCount.value}题)`
@@ -654,7 +654,7 @@ const send = async () => {
     customMessage: useRecentContext.value ? contextInstruction.value.trim() : (customMessage.value || null),
     conversationId: currentConversationId.value,
     useContext: useRecentContext.value,
-    contextRounds: contextRounds.value
+    contextRounds: CONTEXT_ROUNDS
   }
   lastRequestPayload.value = payload
   await submitGenerationTask(payload, false)
@@ -673,7 +673,6 @@ const clearForm = () => {
   customMessage.value = ''
   contextInstruction.value = ''
   useRecentContext.value = false
-  contextRounds.value = 5
 }
 
 // 切换消息选择状态
@@ -933,7 +932,7 @@ const sendAssignmentToCourse = async () => {
                 active-text="关联最近上下文"
                 inactive-text="不关联历史上下文"
               />
-              <el-tag v-if="useRecentContext" size="small" type="info">最近{{ contextRounds }}轮</el-tag>
+              <el-tag v-if="useRecentContext" size="small" type="info">最近{{ CONTEXT_ROUNDS }}轮</el-tag>
             </div>
             <div class="context-settings-tip" v-if="!contextModeAvailable">
               当前会话暂无历史对话，暂不可启用参考上下文模式
@@ -1077,7 +1076,7 @@ const sendAssignmentToCourse = async () => {
           >
             <template v-if="chat.role === 'ai'">
               <div class="context-hint" v-if="chat.contextUsed !== undefined">
-                {{ chat.contextUsed ? `本次已关联最近${chat.contextRounds || 5}轮上下文` : '本次未关联历史上下文（纯参数生成）' }}
+                {{ chat.contextUsed ? `本次已关联最近${chat.contextRounds || CONTEXT_ROUNDS}轮上下文` : '本次未关联历史上下文（纯参数生成）' }}
               </div>
               <div v-if="chat.structuredQuestions && chat.structuredQuestions.length > 0" class="question-cards">
                 <div
