@@ -30,14 +30,14 @@ const protectLatexFormulas = (text: string): string => {
   let counter = 0
   let underscoreCounter = 0
   
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (match, formula) => {
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => {
     const placeholder = `${LATEX_PLACEHOLDER_PREFIX}DISPLAY${counter}ENDLATEX`
     latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: true })
     counter++
     return placeholder
   })
   
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (match, formula) => {
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula) => {
     const placeholder = `${LATEX_PLACEHOLDER_PREFIX}INLINE${counter}ENDLATEX`
     latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: false })
     counter++

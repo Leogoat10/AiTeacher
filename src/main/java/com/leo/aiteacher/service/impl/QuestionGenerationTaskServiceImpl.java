@@ -1,5 +1,6 @@
 package com.leo.aiteacher.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,7 +54,8 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
 
     @Override
     public Map<String, Object> createGenerationTask(String subject, String grade, String difficulty, String questionType,
-                                                    String questionCount, String customMessage, Integer conversationId) {
+                                                    String questionCount, String customMessage, Integer conversationId,
+                                                    Boolean useContext, Integer contextRounds) {
         Map<String, Object> result = new HashMap<>();
 
         TeacherDto teacher = SessionUtils.getCurrentTeacher();
@@ -64,24 +66,24 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
             return result;
         }
 
-        String validationError = validateRequest(subject, grade, difficulty, questionType, questionCount);
-        if (validationError != null) {
+        boolean enableContext = useContext == null || useContext;
+        int actualContextRounds = normalizeContextRounds(contextRounds);
+
+        if (enableContext && conversationId == null) {
             result.put("success", false);
-            result.put("error", validationError);
+            result.put("error", "当前会话暂无历史对话，无法使用参考上下文模式");
             result.put("status", HttpStatus.BAD_REQUEST.value());
             return result;
         }
 
-        String title = buildTitleFromForm(subject, grade, difficulty, questionType, questionCount, customMessage);
-        String prompt = buildStructuredPrompt(subject, grade, difficulty, questionType, questionCount, customMessage);
-
         Integer actualConversationId = conversationId;
         boolean isNewConversation = false;
+        ConversationDto existingConversation = null;
 
         if (actualConversationId == null) {
             ConversationDto newConversation = new ConversationDto();
             newConversation.setTeacherId(teacher.getTeacherId());
-            newConversation.setTitle(title);
+            newConversation.setTitle("请发送消息");
             conversationMapper.insertConversation(newConversation);
             actualConversationId = newConversation.getId();
             isNewConversation = true;
@@ -93,35 +95,110 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
                 result.put("status", HttpStatus.FORBIDDEN.value());
                 return result;
             }
+            existingConversation = conversation;
         }
+
+        String resolvedSubject = subject;
+        String resolvedGrade = grade;
+        String resolvedDifficulty = difficulty;
+        String resolvedQuestionType = questionType;
+        String resolvedQuestionCount = questionCount;
+
+        if (enableContext) {
+            GenerationTaskDto latestTask = findLatestTask(teacher.getTeacherId(), actualConversationId);
+            if (latestTask != null) {
+                if (isBlank(resolvedSubject)) resolvedSubject = latestTask.getSubject();
+                if (isBlank(resolvedGrade)) resolvedGrade = latestTask.getGrade();
+                if (isBlank(resolvedDifficulty)) resolvedDifficulty = latestTask.getDifficulty();
+                if (isBlank(resolvedQuestionType)) resolvedQuestionType = latestTask.getQuestionType();
+                if (isBlank(resolvedQuestionCount) && latestTask.getQuestionCount() != null) {
+                    resolvedQuestionCount = String.valueOf(latestTask.getQuestionCount());
+                }
+            }
+        }
+
+        String validationError = validateRequest(resolvedSubject, resolvedGrade, resolvedDifficulty, resolvedQuestionType, resolvedQuestionCount);
+        if (validationError != null) {
+            result.put("success", false);
+            result.put("error", validationError);
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+
+        String recentContextSummary = enableContext
+                ? buildRecentContextSummary(actualConversationId, actualContextRounds)
+                : "";
+        if (enableContext && recentContextSummary.isBlank()) {
+            result.put("success", false);
+            result.put("error", "当前会话暂无历史对话，无法使用参考上下文模式");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+
+        String title = buildTitleFromForm(resolvedSubject, resolvedGrade, resolvedDifficulty, resolvedQuestionType, resolvedQuestionCount, customMessage);
+        if (isNewConversation || shouldRefreshConversationTitle(existingConversation)) {
+            ConversationDto conversationToUpdate = new ConversationDto();
+            conversationToUpdate.setId(actualConversationId);
+            conversationToUpdate.setTitle(title);
+            conversationMapper.updateById(conversationToUpdate);
+        }
+        String prompt = buildStructuredPrompt(
+                resolvedSubject, resolvedGrade, resolvedDifficulty, resolvedQuestionType, resolvedQuestionCount, customMessage,
+                recentContextSummary, enableContext, actualContextRounds
+        );
 
         GenerationTaskDto task = new GenerationTaskDto();
         task.setTeacherId(teacher.getTeacherId());
         task.setConversationId(actualConversationId);
         task.setStatus("PENDING");
-        task.setSubject(subject);
-        task.setGrade(grade);
-        task.setDifficulty(difficulty);
-        task.setQuestionType(questionType);
-        task.setQuestionCount(parseQuestionCount(questionCount));
+        task.setSubject(resolvedSubject);
+        task.setGrade(resolvedGrade);
+        task.setDifficulty(resolvedDifficulty);
+        task.setQuestionType(resolvedQuestionType);
+        task.setQuestionCount(parseQuestionCount(resolvedQuestionCount));
         task.setCustomMessage(customMessage);
         task.setRequestPrompt(prompt);
         task.setQualityPassed(false);
         generationTaskMapper.insert(task);
 
         final Integer finalConversationId = actualConversationId;
-        final Integer teacherId = teacher.getTeacherId();
         final String finalTitle = title;
-        questionGenerationExecutor.execute(() -> executeTask(task.getId(), teacherId, finalConversationId, finalTitle));
+        questionGenerationExecutor.execute(() -> executeTask(task.getId(), finalConversationId, finalTitle));
 
         result.put("success", true);
         result.put("taskId", task.getId());
         result.put("conversationId", actualConversationId);
         result.put("status", task.getStatus());
+        result.put("useContext", enableContext);
+        result.put("contextRounds", actualContextRounds);
         if (isNewConversation) {
             result.put("newConversationId", actualConversationId);
         }
         return result;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private boolean shouldRefreshConversationTitle(ConversationDto conversation) {
+        if (conversation == null) {
+            return false;
+        }
+        String currentTitle = conversation.getTitle();
+        return currentTitle == null
+                || currentTitle.isBlank()
+                || "请发送消息".equals(currentTitle.trim());
+    }
+
+    private GenerationTaskDto findLatestTask(Integer teacherId, Integer conversationId) {
+        return generationTaskMapper.selectOne(
+                new QueryWrapper<GenerationTaskDto>()
+                        .eq("teacher_id", teacherId)
+                        .eq("conversation_id", conversationId)
+                        .orderByDesc("id")
+                        .last("LIMIT 1")
+        );
     }
 
     @Override
@@ -171,7 +248,7 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
         return result;
     }
 
-    private void executeTask(Long taskId, Integer teacherId, Integer conversationId, String title) {
+    private void executeTask(Long taskId, Integer conversationId, String title) {
         GenerationTaskDto task = generationTaskMapper.selectById(taskId);
         if (task == null) {
             return;
@@ -400,26 +477,88 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
 
     private int parseQuestionCount(String questionCount) {
         try {
-            return Integer.parseInt(questionCount);
+            return Integer.parseInt(questionCount == null ? "" : questionCount.trim());
         } catch (Exception e) {
             return -1;
         }
     }
 
     private String buildStructuredPrompt(String subject, String grade, String difficulty, String questionType,
-                                         String questionCount, String customMessage) {
+                                         String questionCount, String customMessage, String recentContextSummary,
+                                         boolean useContext, int contextRounds) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("请为教师生成题目，要求如下：\n");
+        prompt.append(buildSystemRulesTemplate(useContext));
+        prompt.append("\n\n");
+        prompt.append(buildContextTemplate(useContext, contextRounds, recentContextSummary));
+        prompt.append("\n\n");
+        prompt.append(buildCurrentRequestTemplate(subject, grade, difficulty, questionType, questionCount, customMessage, useContext));
+        prompt.append("\n\n");
+        prompt.append(buildOutputJsonTemplate(questionType, difficulty, useContext));
+        return prompt.toString();
+    }
+
+    private String buildSystemRulesTemplate(boolean useContext) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("你是专业教学题目生成助手。请严格遵守以下规则：\n");
+        prompt.append("1) 必须输出合法JSON，不允许输出JSON以外内容。\n");
+        prompt.append("2) 题目数量必须与请求一致。\n");
+        prompt.append("3) 每题必须包含：题干、题型、答案、解析。\n");
+        prompt.append("4) 同一批次题目尽量避免重复。\n");
+        prompt.append("5) 当历史上下文与本轮参数冲突时，优先级为：本轮参数 > 本轮补充要求 > 历史上下文。\n");
+        if (useContext) {
+            prompt.append("6) 当前是“上下文改写模式”：默认基于最近一轮题目做定向改写，不要重新生成完全不同的新题组。\n");
+            prompt.append("7) 若用户未明确要求改变科目/题型/题量，必须保持这些维度与最近一轮一致。\n");
+            prompt.append("8) 用户若仅要求“更难/更简单/更贴近应用”，只能做对应维度调整，其他维度保持不变。\n");
+        } else {
+            prompt.append("6) 普通模式下按本轮参数独立生成。\n");
+        }
+        return prompt.toString();
+    }
+
+    private String buildContextTemplate(boolean useContext, int contextRounds, String recentContextSummary) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("【历史上下文】\n");
+        if (!useContext) {
+            prompt.append("本轮未启用历史上下文，请按本轮参数独立生成。\n");
+            return prompt.toString();
+        }
+        prompt.append("本轮已启用历史上下文，最多关联最近").append(contextRounds).append("轮。\n");
+        if (recentContextSummary == null || recentContextSummary.isBlank()) {
+            prompt.append("当前会话暂无可用历史轮次，请按本轮参数独立生成。\n");
+        } else {
+            prompt.append(recentContextSummary).append("\n");
+        }
+        return prompt.toString();
+    }
+
+    private String buildCurrentRequestTemplate(String subject, String grade, String difficulty, String questionType,
+                                               String questionCount, String customMessage, boolean useContext) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("【本轮请求】\n");
         prompt.append("- 科目：").append(subject).append("\n");
         prompt.append("- 年级：").append(grade).append("\n");
         prompt.append("- 难度：").append(difficulty).append("\n");
         prompt.append("- 题型：").append(questionType).append("\n");
         prompt.append("- 数量：").append(questionCount).append("\n");
         if (customMessage != null && !customMessage.isBlank()) {
-            prompt.append("- 额外要求：").append(customMessage).append("\n");
+            prompt.append(useContext ? "- 增量改写指令：" : "- 补充要求：").append(customMessage).append("\n");
         }
+        prompt.append("- 执行约束：\n");
+        if (useContext) {
+            prompt.append("  - 这是基于历史题组的增量改写，不是全新命题。\n");
+            prompt.append("  - 若增量指令不明确，优先保持上一轮题组结构与主题，仅微调表述与难度。\n");
+            prompt.append("  - 除非明确要求“重出一套/完全不同”，禁止跳到无关主题。\n");
+        } else {
+            prompt.append("  - 若表达“再难一些/再简单一些”，仅调整难度，不改变题型与题量（除非本轮参数明确修改）。\n");
+            prompt.append("  - 若表达“换题型”，保留科目和年级，按新题型重生成。\n");
+        }
+        return prompt.toString();
+    }
 
-        prompt.append("\n必须返回严格JSON（不允许markdown代码块），格式如下：\n");
+    private String buildOutputJsonTemplate(String questionType, String difficulty, boolean useContext) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("【输出格式】\n");
+        prompt.append("必须返回严格JSON（不允许markdown代码块），格式如下：\n");
         prompt.append("{\n");
         prompt.append("  \"questions\": [\n");
         prompt.append("    {\n");
@@ -434,7 +573,115 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
         prompt.append("    }\n");
         prompt.append("  ]\n");
         prompt.append("}\n");
+        if (useContext) {
+            prompt.append("额外要求：在保证JSON结构不变前提下，输出内容应体现“基于历史题组改写”的连续性。\n");
+        }
         return prompt.toString();
+    }
+
+    private int normalizeContextRounds(Integer contextRounds) {
+        if (contextRounds == null) {
+            return 5;
+        }
+        if (contextRounds < 1) {
+            return 1;
+        }
+        return Math.min(contextRounds, 5);
+    }
+
+    private String buildRecentContextSummary(Integer conversationId, int rounds) {
+        List<MessageDto> allMessages = messageMapper.getMessagesByConversationId(conversationId);
+        if (allMessages == null || allMessages.isEmpty()) {
+            return "";
+        }
+
+        List<MessageDto> validRounds = allMessages.stream()
+                .filter(message -> message != null
+                        && message.getQuestion() != null && !message.getQuestion().isBlank()
+                        && message.getAnswer() != null && !message.getAnswer().isBlank()
+                        && !"FAILED".equalsIgnoreCase(message.getStructuredStatus()))
+                .toList();
+
+        if (validRounds.isEmpty()) {
+            return "";
+        }
+
+        int from = Math.max(validRounds.size() - rounds, 0);
+        List<MessageDto> recentRounds = validRounds.subList(from, validRounds.size());
+
+        StringBuilder summary = new StringBuilder();
+        MessageDto latest = recentRounds.get(recentRounds.size() - 1);
+        summary.append("【最近一轮基准题组】\n");
+        summary.append("- 用户请求：").append(abbreviate(latest.getQuestion(), 120)).append("\n");
+        summary.append("- 题组摘要：").append(abbreviate(extractAnswerSummary(latest.getAnswer()), 1200)).append("\n\n");
+        summary.append("【历史轮次摘要】\n");
+        for (int i = 0; i < recentRounds.size(); i++) {
+            MessageDto msg = recentRounds.get(i);
+            summary.append("Round ").append(i + 1).append(":\n");
+            summary.append("- 用户意图摘要：").append(abbreviate(msg.getQuestion(), 90)).append("\n");
+            summary.append("- AI产出摘要：").append(abbreviate(extractAnswerSummary(msg.getAnswer()), 320)).append("\n");
+        }
+        return summary.toString().trim();
+    }
+
+    private String extractAnswerSummary(String answer) {
+        if (answer == null || answer.isBlank()) {
+            return "";
+        }
+        String normalized = answer.replace("\r\n", "\n").trim();
+        List<String> stems = extractQuestionStems(normalized);
+        if (!stems.isEmpty()) {
+            StringBuilder summary = new StringBuilder();
+            summary.append("共").append(stems.size()).append("题；题干摘要：");
+            for (int i = 0; i < stems.size(); i++) {
+                if (i > 0) {
+                    summary.append(" | ");
+                }
+                summary.append(i + 1).append(")").append(stems.get(i));
+            }
+            return summary.toString();
+        }
+
+        String[] lines = normalized.split("\n");
+        StringBuilder fallback = new StringBuilder();
+        int maxLines = Math.min(lines.length, 6);
+        for (int i = 0; i < maxLines; i++) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (fallback.length() > 0) {
+                fallback.append(" | ");
+            }
+            fallback.append(line);
+        }
+        return fallback.length() > 0 ? fallback.toString() : normalized;
+    }
+
+    private List<String> extractQuestionStems(String markdownAnswer) {
+        String[] lines = markdownAnswer.split("\n");
+        List<String> stems = new ArrayList<>();
+        for (String rawLine : lines) {
+            String line = rawLine == null ? "" : rawLine.trim();
+            if (line.matches("^\\d+\\.\\s+.*")) {
+                String stem = line.replaceFirst("^\\d+\\.\\s+", "").trim();
+                if (!stem.isEmpty()) {
+                    stems.add(stem);
+                }
+            }
+        }
+        return stems;
+    }
+
+    private String abbreviate(String content, int maxLength) {
+        if (content == null) {
+            return "";
+        }
+        String cleaned = content.replaceAll("\\s+", " ").trim();
+        if (cleaned.length() <= maxLength) {
+            return cleaned;
+        }
+        return cleaned.substring(0, maxLength) + "...";
     }
 
     private String buildTitleFromForm(String subject, String grade, String difficulty, String questionType,

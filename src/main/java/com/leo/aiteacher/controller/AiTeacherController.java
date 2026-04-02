@@ -1,4 +1,3 @@
-// AiTeacherController.java (修改后)
 package com.leo.aiteacher.controller;
 
 import com.leo.aiteacher.service.TeachingPlanQueService;
@@ -17,7 +16,6 @@ import java.util.Map;
 @RequestMapping("/teacher")
 public class AiTeacherController {
 
-    // 添加日志记录器
     private static final Logger logger = LoggerFactory.getLogger(AiTeacherController.class);
 
     @Autowired
@@ -49,9 +47,11 @@ public class AiTeacherController {
             String questionType = (String) requestData.get("questionType");
             String questionCount = requestData.get("questionCount") == null ? null : requestData.get("questionCount").toString();
             String customMessage = requestData.get("customMessage") == null ? null : requestData.get("customMessage").toString();
+            Boolean useContext = requestData.get("useContext") == null ? null : Boolean.valueOf(requestData.get("useContext").toString());
+            Integer contextRounds = parseOptionalInteger(requestData.get("contextRounds"));
 
             Map<String, Object> result = questionGenerationTaskService.createGenerationTask(
-                    subject, grade, difficulty, questionType, questionCount, customMessage, conversationId
+                    subject, grade, difficulty, questionType, questionCount, customMessage, conversationId, useContext, contextRounds
             );
             if (Boolean.TRUE.equals(result.get("success"))) {
                 return ResponseEntity.ok(result);
@@ -200,6 +200,20 @@ public class AiTeacherController {
                 "message", e.getMessage()
             );
             return ResponseEntity.status(500).body(errorResponse);
+        }
+    }
+
+    private Integer parseOptionalInteger(Object rawValue) {
+        if (rawValue == null) {
+            return null;
+        }
+        if (rawValue instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(rawValue.toString());
+        } catch (NumberFormatException ignore) {
+            return null;
         }
     }
 

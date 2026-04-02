@@ -7,4 +7,5 @@ import java.util.List;
 
 public interface MessageMapper extends BaseMapper<MessageDto> {
     List<MessageDto> getMessagesByConversationId(Integer conversationId);
+    Integer countByConversationId(Integer conversationId);
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import { marked } from 'marked'
@@ -25,7 +25,7 @@ const protectLatexFormulas = (text: string): string => {
   let underscoreCounter = 0
   
   // 先处理块级公式 \[...\]
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (match, formula) => {
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => {
     const placeholder = `${LATEX_PLACEHOLDER_PREFIX}DISPLAY${counter}ENDLATEX`
     latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: true })
     counter++
@@ -33,7 +33,7 @@ const protectLatexFormulas = (text: string): string => {
   })
   
   // 再处理行内公式 \(...\)
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (match, formula) => {
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula) => {
     const placeholder = `${LATEX_PLACEHOLDER_PREFIX}INLINE${counter}ENDLATEX`
     latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: false })
     counter++
@@ -205,6 +205,8 @@ const switchToConversation = async (conversationId: number) => {
             role: msg.role,
             content,
             rawContent: msg.role === 'ai' ? msg.content : undefined,
+            renderedQuestionContent: msg.role === 'ai' ? splitRenderedContent(content).questionHtml : undefined,
+            renderedSolutionContent: msg.role === 'ai' ? splitRenderedContent(content).solutionHtml : undefined,
             timestamp: new Date(msg.timestamp),
             id: messageIdCounter++
           })
@@ -266,6 +268,8 @@ const chatHistory = ref<Array<{
   role: string;
   content: string;
   rawContent?: string;  // 添加原始内容字段
+  renderedQuestionContent?: string;
+  renderedSolutionContent?: string;
   structuredQuestions?: Array<{
     stem: string;
     type: string;
@@ -280,6 +284,8 @@ const chatHistory = ref<Array<{
     questionIndex: number;
     message: string;
   }>;
+  contextUsed?: boolean;
+  contextRounds?: number;
   timestamp: Date;
   id: number
 }>>([])
@@ -301,6 +307,9 @@ const difficulty = ref('')
 const questionType = ref('')
 const questionCount = ref('')
 const customMessage = ref('')
+const contextInstruction = ref('')
+const useRecentContext = ref(false)
+const contextRounds = ref(5)
 const educationOptions = [
   {
     value: '小学',
@@ -374,6 +383,29 @@ const statusLabelMap: Record<string, string> = {
 
 const taskStatusTagType = computed(() => statusTypeMap[taskStatus.value] || 'info')
 const taskStatusLabel = computed(() => statusLabelMap[taskStatus.value] || '等待中')
+const hasContextHistory = computed(() => chatHistory.value.some(msg => msg.role === 'ai' && !!(msg.rawContent || msg.content)))
+const contextModeAvailable = computed(() => !!currentConversationId.value && hasContextHistory.value)
+const canSubmit = computed(() => {
+  if (loading.value) return false
+  if (useRecentContext.value) {
+    return contextModeAvailable.value && !!contextInstruction.value.trim()
+  }
+  return !!subject.value.trim() && !!grade.value && !!difficulty.value && !!questionType.value && !!questionCount.value
+})
+const taskContextText = computed(() => {
+  const useContext = lastRequestPayload.value?.useContext
+  const rounds = lastRequestPayload.value?.contextRounds || contextRounds.value
+  if (useContext === undefined) {
+    return useRecentContext.value ? `本次任务将关联最近${contextRounds.value}轮上下文` : '本次任务不关联历史上下文'
+  }
+  return useContext ? `本次任务将关联最近${rounds}轮上下文` : '本次任务不关联历史上下文'
+})
+
+watch(contextModeAvailable, (available) => {
+  if (!available && useRecentContext.value) {
+    useRecentContext.value = false
+  }
+})
 
 const buildMarkdownFromResult = (questions: any[], issues: any[]) => {
   const markdownParts: string[] = []
@@ -382,6 +414,7 @@ const buildMarkdownFromResult = (questions: any[], issues: any[]) => {
     if (Array.isArray(q.options) && q.options.length > 0) {
       q.options.forEach((opt: string) => markdownParts.push(`   ${opt}`))
     }
+    markdownParts.push('   答案与解析：')
     markdownParts.push(`   答案：${q.answer || ''}`)
     if (q.analysis) markdownParts.push(`   解析：${q.analysis}`)
     markdownParts.push('')
@@ -395,6 +428,31 @@ const buildMarkdownFromResult = (questions: any[], issues: any[]) => {
     })
   }
   return markdownParts.join('\n').trim()
+}
+
+const splitRenderedContent = (htmlContent: string): { questionHtml: string; solutionHtml: string } => {
+  if (!htmlContent) return { questionHtml: '', solutionHtml: '' }
+
+  const markers = ['答案与解析', '答案和解析', '参考答案', '答案：', '答案:', '【答案】', '【解析】']
+  let splitIndex = -1
+
+  for (const marker of markers) {
+    const idx = htmlContent.indexOf(marker)
+    if (idx !== -1 && (splitIndex === -1 || idx < splitIndex)) {
+      splitIndex = idx
+    }
+  }
+
+  if (splitIndex === -1) {
+    return { questionHtml: htmlContent, solutionHtml: '' }
+  }
+
+  const paragraphStart = htmlContent.lastIndexOf('<p', splitIndex)
+  const safeIndex = paragraphStart !== -1 ? paragraphStart : splitIndex
+  return {
+    questionHtml: htmlContent.substring(0, safeIndex),
+    solutionHtml: htmlContent.substring(safeIndex)
+  }
 }
 
 const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) => {
@@ -419,6 +477,9 @@ const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) 
     if (!taskRes.data.success) {
       throw new Error(taskRes.data.error || '任务创建失败')
     }
+
+    const taskUseContext = taskRes.data.useContext ?? payload.useContext ?? true
+    const taskContextRounds = taskRes.data.contextRounds ?? payload.contextRounds ?? 5
 
     if (taskRes.data.newConversationId !== undefined && taskRes.data.newConversationId !== null) {
       currentConversationId.value = taskRes.data.newConversationId
@@ -474,6 +535,8 @@ const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) 
       role: 'ai',
       content: htmlContent,
       rawContent: markdownContent,
+      renderedQuestionContent: splitRenderedContent(htmlContent).questionHtml,
+      renderedSolutionContent: splitRenderedContent(htmlContent).solutionHtml,
       structuredQuestions: questions.map((q: any) => ({
         stem: q.stem || '',
         type: q.type || '',
@@ -484,6 +547,8 @@ const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) 
         difficulty: q.difficulty
       })),
       qualityIssues: issues,
+      contextUsed: !!taskUseContext,
+      contextRounds: Number(taskContextRounds) || 5,
       timestamp: new Date(),
       id: messageIdCounter++
     })
@@ -527,34 +592,51 @@ const retryLastTask = async () => {
 }
 
 const send = async () => {
-  if (!subject.value.trim()) {
-    ElMessage.warning('请输入科目/专业')
-    return
-  }
-  if (!grade.value) {
-    ElMessage.warning('请选择年级')
-    return
-  }
-  if (!difficulty.value) {
-    ElMessage.warning('请选择难易程度')
-    return
-  }
-  if (!questionType.value) {
-    ElMessage.warning('请选择题型')
-    return
-  }
-  if (!questionCount.value) {
-    ElMessage.warning('请输入题目数量')
-    return
-  }
-  if (isNaN(Number(questionCount.value)) || Number(questionCount.value) <= 0) {
-    ElMessage.warning('题目数必须为大于0的数字')
-    return
+  if (useRecentContext.value) {
+    if (!contextModeAvailable.value) {
+      ElMessage.warning('当前会话暂无历史对话，无法使用参考上下文模式')
+      return
+    }
+    if (!contextInstruction.value.trim()) {
+      ElMessage.warning('请输入上下文增量指令')
+      return
+    }
+  } else {
+    if (!subject.value.trim()) {
+      ElMessage.warning('请输入科目/专业')
+      return
+    }
+    if (!grade.value) {
+      ElMessage.warning('请选择年级')
+      return
+    }
+    if (!difficulty.value) {
+      ElMessage.warning('请选择难易程度')
+      return
+    }
+    if (!questionType.value) {
+      ElMessage.warning('请选择题型')
+      return
+    }
+    if (!questionCount.value) {
+      ElMessage.warning('请输入题目数量')
+      return
+    }
+    if (isNaN(Number(questionCount.value)) || Number(questionCount.value) <= 0) {
+      ElMessage.warning('题目数必须为大于0的数字')
+      return
+    }
   }
 
-  let userDisplayMessage = `${subject.value} ${grade.value} ${difficulty.value} ${questionType.value}`
-  if (questionCount.value) userDisplayMessage += ` (${questionCount.value}题)`
-  if (customMessage.value.trim()) userDisplayMessage += ` - ${customMessage.value}`
+  let userDisplayMessage = ''
+  if (useRecentContext.value) {
+    userDisplayMessage = `上下文增量指令：${contextInstruction.value.trim()} [关联最近${contextRounds.value}轮上下文]`
+  } else {
+    userDisplayMessage = `${subject.value} ${grade.value} ${difficulty.value} ${questionType.value}`
+    if (questionCount.value) userDisplayMessage += ` (${questionCount.value}题)`
+    if (customMessage.value.trim()) userDisplayMessage += ` - ${customMessage.value}`
+    userDisplayMessage += ' [不关联历史上下文]'
+  }
 
   chatHistory.value.push({
     role: 'user',
@@ -564,16 +646,21 @@ const send = async () => {
   })
 
   const payload = {
-    subject: subject.value,
-    grade: grade.value.toString(),
-    difficulty: difficulty.value,
-    questionType: questionType.value,
-    questionCount: questionCount.value,
-    customMessage: customMessage.value || null,
-    conversationId: currentConversationId.value
+    subject: useRecentContext.value ? null : subject.value,
+    grade: useRecentContext.value ? null : grade.value.toString(),
+    difficulty: useRecentContext.value ? null : difficulty.value,
+    questionType: useRecentContext.value ? null : questionType.value,
+    questionCount: useRecentContext.value ? null : questionCount.value,
+    customMessage: useRecentContext.value ? contextInstruction.value.trim() : (customMessage.value || null),
+    conversationId: currentConversationId.value,
+    useContext: useRecentContext.value,
+    contextRounds: contextRounds.value
   }
   lastRequestPayload.value = payload
   await submitGenerationTask(payload, false)
+  if (useRecentContext.value) {
+    contextInstruction.value = ''
+  }
 }
 
 // 添加清空表单的方法
@@ -584,6 +671,9 @@ const clearForm = () => {
   questionType.value = ''
   questionCount.value = ''
   customMessage.value = ''
+  contextInstruction.value = ''
+  useRecentContext.value = false
+  contextRounds.value = 5
 }
 
 // 切换消息选择状态
@@ -835,78 +925,107 @@ const sendAssignmentToCourse = async () => {
           </div>
         </div>
         <el-form label-position="top">
-          <el-form-item label="科目/专业">
-            <el-input
-              v-model="subject"
-              placeholder="请输入科目/专业"
-              :disabled="loading"
-            />
+          <el-form-item label="上下文关联">
+            <div class="context-settings">
+              <el-switch
+                v-model="useRecentContext"
+                :disabled="loading || !contextModeAvailable"
+                active-text="关联最近上下文"
+                inactive-text="不关联历史上下文"
+              />
+              <el-tag v-if="useRecentContext" size="small" type="info">最近{{ contextRounds }}轮</el-tag>
+            </div>
+            <div class="context-settings-tip" v-if="!contextModeAvailable">
+              当前会话暂无历史对话，暂不可启用参考上下文模式
+            </div>
           </el-form-item>
 
-          <el-form-item label="年级">
-            <el-cascader
-                v-model="grade"
-                :options="educationOptions"
-                :props="{ expandTrigger: 'hover' }"
-                placeholder="请选择年级"
-                style="width: 100%"
-            />
-          </el-form-item>
-
-          <el-form-item label="难易程度">
-            <el-select
-              v-model="difficulty"
-              placeholder="请选择难易程度"
-              :disabled="loading"
-              style="width: 100%"
-            >
-              <el-option label="简单" value="简单" />
-              <el-option label="中等" value="中等" />
-              <el-option label="困难" value="困难" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="题型">
-            <el-select
-              v-model="questionType"
-              placeholder="请选择题型"
-              :disabled="loading"
-              style="width: 100%"
-            >
-              <el-option label="选择题" value="选择题" />
-              <el-option label="填空题" value="填空题" />
-              <el-option label="判断题" value="判断题" />
-              <el-option label="简答题" value="简答题" />
-              <el-option label="解答题" value="解答题" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="题目数">
-            <el-input
-                v-model="questionCount"
-                placeholder="请输入题目数量"
+          <template v-if="!useRecentContext">
+            <el-form-item label="科目/专业">
+              <el-input
+                v-model="subject"
+                placeholder="请输入科目/专业"
                 :disabled="loading"
-                type="number"
-                min="1"
-                required
-            />
-          </el-form-item>
+              />
+            </el-form-item>
 
-          <el-form-item label="具体要求（选填）">
-            <el-input
-              v-model="customMessage"
-              placeholder="请输入具体要求"
-              :disabled="loading"
-              type="textarea"
-              :rows="3"
-            />
-          </el-form-item>
+            <el-form-item label="年级">
+              <el-cascader
+                  v-model="grade"
+                  :options="educationOptions"
+                  :props="{ expandTrigger: 'hover' }"
+                  placeholder="请选择年级"
+                  style="width: 100%"
+              />
+            </el-form-item>
+
+            <el-form-item label="难易程度">
+              <el-select
+                v-model="difficulty"
+                placeholder="请选择难易程度"
+                :disabled="loading"
+                style="width: 100%"
+              >
+                <el-option label="简单" value="简单" />
+                <el-option label="中等" value="中等" />
+                <el-option label="困难" value="困难" />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="题型">
+              <el-select
+                v-model="questionType"
+                placeholder="请选择题型"
+                :disabled="loading"
+                style="width: 100%"
+              >
+                <el-option label="选择题" value="选择题" />
+                <el-option label="填空题" value="填空题" />
+                <el-option label="判断题" value="判断题" />
+                <el-option label="简答题" value="简答题" />
+                <el-option label="解答题" value="解答题" />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item label="题目数">
+              <el-input
+                  v-model="questionCount"
+                  placeholder="请输入题目数量"
+                  :disabled="loading"
+                  type="number"
+                  min="1"
+                  required
+              />
+            </el-form-item>
+
+            <el-form-item label="具体要求（选填）">
+              <el-input
+                v-model="customMessage"
+                placeholder="请输入具体要求"
+                :disabled="loading"
+                type="textarea"
+                :rows="3"
+              />
+            </el-form-item>
+          </template>
+
+          <template v-else>
+            <el-form-item label="上下文增量指令">
+              <el-input
+                v-model="contextInstruction"
+                placeholder="例如：保持题型和题量不变，再难一些；或者改成应用题"
+                :disabled="loading"
+                type="textarea"
+                :rows="4"
+              />
+            </el-form-item>
+          </template>
 
           <el-button
               type="primary"
               @click="send"
               :loading="loading"
-              :disabled="!subject.trim() || !difficulty || !questionType || !questionCount"    style="width: 100%"
+              :disabled="!canSubmit"    style="width: 100%"
           >
             生成题目
           </el-button>
@@ -925,6 +1044,9 @@ const sendAssignmentToCourse = async () => {
           <div class="task-panel-text">
             <span v-if="taskStatusText">{{ taskStatusText }}</span>
             <span v-else-if="taskStatus === 'FAILED'">失败原因：{{ taskErrorMessage || '未知错误' }}</span>
+            <div class="task-context-text">
+              {{ taskContextText }}
+            </div>
           </div>
           <div class="task-panel-actions" v-if="taskStatus === 'FAILED' && !loading">
             <el-button size="small" type="danger" plain @click="retryLastTask">重试本次参数</el-button>
@@ -954,6 +1076,9 @@ const sendAssignmentToCourse = async () => {
             :class="['message-content', chat.role]"
           >
             <template v-if="chat.role === 'ai'">
+              <div class="context-hint" v-if="chat.contextUsed !== undefined">
+                {{ chat.contextUsed ? `本次已关联最近${chat.contextRounds || 5}轮上下文` : '本次未关联历史上下文（纯参数生成）' }}
+              </div>
               <div v-if="chat.structuredQuestions && chat.structuredQuestions.length > 0" class="question-cards">
                 <div
                   v-for="(q, idx) in chat.structuredQuestions"
@@ -968,13 +1093,20 @@ const sendAssignmentToCourse = async () => {
                       <el-tag size="small" type="warning" v-if="q.score">分值 {{ q.score }}</el-tag>
                     </div>
                   </div>
+
+                  <div class="question-part-title">题目</div>
                   <div class="question-card-stem">{{ q.stem }}</div>
                   <div class="question-card-options" v-if="q.options && q.options.length > 0">
                     <div v-for="(opt, optIdx) in q.options" :key="`${chat.id}-${idx}-opt-${optIdx}`">{{ opt }}</div>
                   </div>
+
+                  <div class="question-split-line"></div>
+
+                  <div class="question-part-title solution">答案与解析</div>
                   <div class="question-card-answer">答案：{{ q.answer }}</div>
                   <div class="question-card-analysis" v-if="q.analysis">解析：{{ q.analysis }}</div>
-                </div>
+                  <div class="question-card-analysis" v-else>解析：暂无</div>
+                  </div>
 
                 <div v-if="chat.qualityIssues && chat.qualityIssues.length > 0" class="quality-issues">
                   <div class="quality-issues-title">质量提示</div>
@@ -987,7 +1119,15 @@ const sendAssignmentToCourse = async () => {
                   </div>
                 </div>
               </div>
-              <div v-else class="markdown-body" v-html="chat.content"></div>
+              <div v-else>
+                <div class="question-part-title">题目</div>
+                <div class="markdown-body" v-html="chat.renderedQuestionContent || chat.content"></div>
+                <template v-if="chat.renderedSolutionContent">
+                  <div class="question-split-line"></div>
+                  <div class="question-part-title solution">答案与解析</div>
+                  <div class="markdown-body" v-html="chat.renderedSolutionContent"></div>
+                </template>
+              </div>
             </template>
             <pre v-else>{{ chat.content }}</pre>
           </el-card>
@@ -1247,6 +1387,11 @@ color: #666;
   color: #606266;
 }
 
+.task-context-text {
+  margin-top: 6px;
+  color: #909399;
+}
+
 .task-panel-actions {
   margin-top: 10px;
 }
@@ -1255,6 +1400,26 @@ color: #666;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.context-settings {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.context-settings-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.context-hint {
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #409eff;
 }
 
 .question-card {
@@ -1269,6 +1434,17 @@ color: #666;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.question-part-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #909399;
+  margin-bottom: 6px;
+}
+
+.question-part-title.solution {
+  color: #67c23a;
 }
 
 .question-card-tags {
@@ -1289,6 +1465,11 @@ color: #666;
   padding: 8px;
   margin-bottom: 8px;
   line-height: 1.6;
+}
+
+.question-split-line {
+  border-top: 1px dashed #dcdfe6;
+  margin: 10px 0 8px;
 }
 
 .question-card-answer {

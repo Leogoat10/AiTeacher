@@ -42,6 +42,10 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
             List<ConversationDto> existingConversations = conversationMapper.getConversationsByTeacherId(teacher.getTeacherId());
             ConversationDto unusedConversation = existingConversations.stream()
                     .filter(conversation -> "请发送消息".equals(conversation.getTitle()))
+                    .filter(conversation -> {
+                        Integer messageCount = messageMapper.countByConversationId(conversation.getId());
+                        return messageCount == null || messageCount == 0;
+                    })
                     .findFirst()
                     .orElse(null);
 
