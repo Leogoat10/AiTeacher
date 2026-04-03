@@ -17,28 +17,57 @@ const UNDERSCORE_PLACEHOLDER_PREFIX = 'UNDERSCOREBLANK'
 const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
 const underscoreStore: Map<string, string> = new Map()
 
+const autoWrapPlainMathExpressions = (text: string, registerInlineFormula: (formula: string) => string): string => {
+  if (!text) return text
+
+  const exprRegex = /([A-Za-zΑ-Ωα-ωσθμλπΔΣΩ][A-Za-z0-9Α-Ωα-ωσθμλπΔΣΩ_]*(?:\([^()\n]{1,40}\))?\s*=\s*[^,，。；;\n]{1,120})/g
+  return text.split('\n').map((line) => {
+    if (
+      !line ||
+      line.includes(LATEX_PLACEHOLDER_PREFIX) ||
+      line.includes('\\(') ||
+      line.includes('\\[') ||
+      line.includes('`') ||
+      /^\s*([#>*-]|\d+\.)\s+/.test(line)
+    ) {
+      return line
+    }
+
+    return line.replace(exprRegex, (match) => {
+      const normalized = match.trim()
+      const hasMathToken = /[+\-*/^_()]|[Α-Ωα-ωσθμλπΔΣΩ]|e\^\{?[-+]?[A-Za-z0-9]/.test(normalized)
+      if (!hasMathToken) return match
+      return registerInlineFormula(normalized)
+    })
+  }).join('\n')
+}
+
 // 提取并保护 LaTeX 公式和下划线，替换为占位符
 const protectLatexFormulas = (text: string): string => {
   latexFormulaStore.clear()
   underscoreStore.clear()
   let counter = 0
   let underscoreCounter = 0
+  const registerFormula = (formula: string, displayMode: boolean) => {
+    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}${displayMode ? 'DISPLAY' : 'INLINE'}${counter}ENDLATEX`
+    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode })
+    counter++
+    return placeholder
+  }
+  const registerInlineFormula = (formula: string) => registerFormula(formula, false)
   
   // 先处理块级公式 \[...\]
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => {
-    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}DISPLAY${counter}ENDLATEX`
-    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: true })
-    counter++
-    return placeholder
+    return registerFormula(formula, true)
   })
   
   // 再处理行内公式 \(...\)
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula) => {
-    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}INLINE${counter}ENDLATEX`
-    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: false })
-    counter++
-    return placeholder
+    return registerInlineFormula(formula)
   })
+
+  // 兼容未加 LaTeX 定界符的常见公式写法，例如：σ(z) = 1 / (1 + e^{-z})
+  text = autoWrapPlainMathExpressions(text, registerInlineFormula)
   
   // 保护填空题中的下划线（连续的下划线，通常2个或更多）
   text = text.replace(/_{2,}/g, (match) => {
@@ -190,7 +219,25 @@ const switchToConversation = async (conversationId: number) => {
       const messages = res.data.messages || []
         for (const msg of messages) {
           let content = msg.content
+          let parsedStructuredQuestions: Array<{
+            stem: string;
+            type: string;
+            options: string[];
+            answer: string;
+            analysis?: string;
+            score?: number;
+            difficulty?: string;
+          }> | undefined = undefined
+          let parsedQualityIssues: Array<{
+            severity: string;
+            questionIndex: number;
+            message: string;
+          }> | undefined = undefined
           if (msg.role === 'ai') {
+            const structuredQuestions = parseStructuredQuestionsFromMarkdown(msg.content)
+            parsedStructuredQuestions = structuredQuestions.length > 0 ? structuredQuestions : undefined
+            const qualityIssues = parseQualityIssuesFromMarkdown(msg.content)
+            parsedQualityIssues = qualityIssues.length > 0 ? qualityIssues : undefined
             // 1. 提取并保护 LaTeX 公式
             const protectedText = protectLatexFormulas(msg.content)
             // 2. 解析 Markdown
@@ -201,12 +248,16 @@ const switchToConversation = async (conversationId: number) => {
             content = DOMPurify.sanitize(withLatex)
           }
 
+          const renderedSplit = msg.role === 'ai' ? splitRenderedContent(content) : null
+
           chatHistory.value.push({
             role: msg.role,
             content,
             rawContent: msg.role === 'ai' ? msg.content : undefined,
-            renderedQuestionContent: msg.role === 'ai' ? splitRenderedContent(content).questionHtml : undefined,
-            renderedSolutionContent: msg.role === 'ai' ? splitRenderedContent(content).solutionHtml : undefined,
+            renderedQuestionContent: renderedSplit?.questionHtml,
+            renderedSolutionContent: renderedSplit?.solutionHtml,
+            structuredQuestions: parsedStructuredQuestions,
+            qualityIssues: parsedQualityIssues,
             timestamp: new Date(msg.timestamp),
             id: messageIdCounter++
           })
@@ -453,6 +504,129 @@ const splitRenderedContent = (htmlContent: string): { questionHtml: string; solu
     questionHtml: htmlContent.substring(0, safeIndex),
     solutionHtml: htmlContent.substring(safeIndex)
   }
+}
+
+const parseStructuredQuestionsFromMarkdown = (rawMarkdown: string): Array<{
+  stem: string;
+  type: string;
+  options: string[];
+  answer: string;
+  analysis?: string;
+}> => {
+  if (!rawMarkdown) return []
+
+  const normalized = rawMarkdown.replace(/\r\n/g, '\n')
+  const qualityStartIdx = normalized.indexOf('\n---\n质量提示：')
+  const mainContent = qualityStartIdx >= 0 ? normalized.substring(0, qualityStartIdx) : normalized
+  const lines = mainContent.split('\n')
+
+  const questions: Array<{
+    stem: string;
+    type: string;
+    options: string[];
+    answer: string;
+    analysis?: string;
+  }> = []
+
+  let current: {
+    stemCandidate: string[];
+    inSolution: boolean;
+    answer: string;
+    analysis: string;
+  } | null = null
+
+  const flushCurrent = () => {
+    if (!current) return
+    const meaningful = current.stemCandidate.map(s => s.trim()).filter(Boolean)
+    if (meaningful.length > 0 || current.answer || current.analysis) {
+      const stem = meaningful[0] || ''
+      const options = meaningful.slice(1)
+      questions.push({
+        stem,
+        type: '',
+        options,
+        answer: current.answer || '',
+        analysis: current.analysis || ''
+      })
+    }
+    current = null
+  }
+
+  for (const line of lines) {
+    const questionMatch = line.match(/^\s*(\d+)[\.\)]\s*(.+)?$/)
+    if (questionMatch) {
+      flushCurrent()
+      current = {
+        stemCandidate: [questionMatch[2]?.trim() || ''],
+        inSolution: false,
+        answer: '',
+        analysis: ''
+      }
+      continue
+    }
+
+    if (!current) continue
+
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    if (trimmed.includes('答案与解析') || trimmed.includes('参考答案')) {
+      current.inSolution = true
+      continue
+    }
+
+    const answerMatch = trimmed.match(/^答案[：:]\s*(.*)$/)
+    if (answerMatch) {
+      current.inSolution = true
+      current.answer = answerMatch[1]?.trim() || ''
+      continue
+    }
+
+    const analysisMatch = trimmed.match(/^解析[：:]\s*(.*)$/)
+    if (analysisMatch) {
+      current.inSolution = true
+      current.analysis = analysisMatch[1]?.trim() || ''
+      continue
+    }
+
+    if (!current.inSolution) {
+      current.stemCandidate.push(trimmed)
+    } else if (current.analysis) {
+      current.analysis = `${current.analysis}\n${trimmed}`
+    }
+  }
+
+  flushCurrent()
+  return questions
+}
+
+const parseQualityIssuesFromMarkdown = (rawMarkdown: string): Array<{
+  severity: string;
+  questionIndex: number;
+  message: string;
+}> => {
+  if (!rawMarkdown) return []
+
+  const normalized = rawMarkdown.replace(/\r\n/g, '\n')
+  const marker = '质量提示：'
+  const markerIdx = normalized.indexOf(marker)
+  if (markerIdx === -1) return []
+
+  const section = normalized.substring(markerIdx + marker.length)
+  const lines = section.split('\n').map(line => line.trim()).filter(Boolean)
+  const issues: Array<{ severity: string; questionIndex: number; message: string }> = []
+
+  for (const line of lines) {
+    const match = line.match(/^-?\s*\[([^\]]+)\]\s*第(\d+)题[：:]\s*(.+)$/)
+    if (!match) continue
+    issues.push({
+      severity: (match[1] || '').trim(),
+      questionIndex: Number(match[2]) || 0,
+      message: (match[3] || '').trim()
+    })
+  }
+
+  return issues
 }
 
 const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) => {

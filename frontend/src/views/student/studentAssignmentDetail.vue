@@ -23,26 +23,52 @@ const UNDERSCORE_PLACEHOLDER_PREFIX = 'UNDERSCOREBLANK'
 const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
 const underscoreStore: Map<string, string> = new Map()
 
+const autoWrapPlainMathExpressions = (text: string, registerInlineFormula: (formula: string) => string): string => {
+  if (!text) return text
+  const exprRegex = /([A-Za-zΑ-Ωα-ωσθμλπΔΣΩ][A-Za-z0-9Α-Ωα-ωσθμλπΔΣΩ_]*(?:\([^()\n]{1,40}\))?\s*=\s*[^,，。；;\n]{1,120})/g
+  return text.split('\n').map((line) => {
+    if (
+      !line ||
+      line.includes(LATEX_PLACEHOLDER_PREFIX) ||
+      line.includes('\\(') ||
+      line.includes('\\[') ||
+      line.includes('`') ||
+      /^\s*([#>*-]|\d+\.)\s+/.test(line)
+    ) {
+      return line
+    }
+    return line.replace(exprRegex, (match) => {
+      const normalized = match.trim()
+      const hasMathToken = /[+\-*/^_()]|[Α-Ωα-ωσθμλπΔΣΩ]|e\^\{?[-+]?[A-Za-z0-9]/.test(normalized)
+      if (!hasMathToken) return match
+      return registerInlineFormula(normalized)
+    })
+  }).join('\n')
+}
+
 // 提取并保护 LaTeX 公式和下划线，替换为占位符
 const protectLatexFormulas = (text: string): string => {
   latexFormulaStore.clear()
   underscoreStore.clear()
   let counter = 0
   let underscoreCounter = 0
-  
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => {
-    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}DISPLAY${counter}ENDLATEX`
-    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: true })
+  const registerFormula = (formula: string, displayMode: boolean) => {
+    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}${displayMode ? 'DISPLAY' : 'INLINE'}${counter}ENDLATEX`
+    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode })
     counter++
     return placeholder
+  }
+  const registerInlineFormula = (formula: string) => registerFormula(formula, false)
+  
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => {
+    return registerFormula(formula, true)
   })
   
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula) => {
-    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}INLINE${counter}ENDLATEX`
-    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode: false })
-    counter++
-    return placeholder
+    return registerInlineFormula(formula)
   })
+
+  text = autoWrapPlainMathExpressions(text, registerInlineFormula)
   
   text = text.replace(/_{2,}/g, (match) => {
     const placeholder = `${UNDERSCORE_PLACEHOLDER_PREFIX}${underscoreCounter}ENDUNDERSCORE`
