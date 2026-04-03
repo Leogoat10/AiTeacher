@@ -13,6 +13,14 @@ public interface StudentAnswerService {
      * @return 包含评分和分析结果的Map
      */
     Map<String, Object> submitAnswer(Integer assignmentId, Integer studentId, String studentAnswer);
+
+    /**
+     * 查询当前学生某题目的判题状态
+     * @param assignmentId 题目ID
+     * @param studentId 学生ID
+     * @return 状态信息
+     */
+    Map<String, Object> getAnswerStatus(Integer assignmentId, Integer studentId);
     
     /**
      * 教师查看某课程下所有学生的答题记录
@@ -56,4 +64,20 @@ public interface StudentAnswerService {
      * @return 更新结果
      */
     Map<String, Object> updateStudentAnswer(Integer answerId, Integer teacherId, String score, String analysis);
+
+    /**
+     * 教师触发AI重新判题
+     * @param answerId 答案ID
+     * @param teacherId 教师ID（用于权限验证）
+     * @return 重判任务信息
+     */
+    Map<String, Object> regradeAnswer(Integer answerId, Integer teacherId);
+
+    /**
+     * 教师查询某条答案的判题状态
+     * @param answerId 答案ID
+     * @param teacherId 教师ID（用于权限验证）
+     * @return 状态信息
+     */
+    Map<String, Object> getAnswerStatusForTeacher(Integer answerId, Integer teacherId);
 }

@@ -160,4 +160,57 @@ public class StudentAnswerController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("更新失败: " + e.getMessage());
         }
     }
+
+    /**
+     * 教师触发AI重新判题
+     * @param answerId 答案ID
+     * @return 重判结果
+     */
+    @PostMapping("/{answerId}/regrade")
+    public ResponseEntity<?> regradeAnswer(@PathVariable Integer answerId) {
+        TeacherDto teacher = SessionUtils.getCurrentTeacher();
+        if (teacher == null) {
+            logger.warn("未登录或会话失效，无法重新判题");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("未登录或会话失效");
+        }
+
+        try {
+            logger.info("教师触发重新判题，answerId={}, teacherId={}", answerId, teacher.getTeacherId());
+            Map<String, Object> result = studentAnswerService.regradeAnswer(answerId, teacher.getTeacherId());
+            if ((Boolean) result.get("success")) {
+                return ResponseEntity.ok(result);
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
+            }
+        } catch (Exception e) {
+            logger.error("重新判题异常", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("重新判题失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 教师查询答案判题状态
+     * @param answerId 答案ID
+     * @return 判题状态
+     */
+    @GetMapping("/{answerId}/status")
+    public ResponseEntity<?> getAnswerStatusForTeacher(@PathVariable Integer answerId) {
+        TeacherDto teacher = SessionUtils.getCurrentTeacher();
+        if (teacher == null) {
+            logger.warn("未登录或会话失效，无法查询判题状态");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("未登录或会话失效");
+        }
+
+        try {
+            Map<String, Object> result = studentAnswerService.getAnswerStatusForTeacher(answerId, teacher.getTeacherId());
+            if ((Boolean) result.get("success")) {
+                return ResponseEntity.ok(result);
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
+            }
+        } catch (Exception e) {
+            logger.error("查询判题状态异常", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("查询判题状态失败: " + e.getMessage());
+        }
+    }
 }

@@ -23,6 +23,9 @@ public class AssignmentDto {
     @TableField("course_code")
     private String courseCode;
 
+    @TableField("send_batch_id")
+    private String sendBatchId;
+
     private String title;
     private String content;
 

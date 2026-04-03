@@ -68,6 +68,20 @@ const protectLatexFormulas = (text: string): string => {
     return registerInlineFormula(formula)
   })
 
+  // 处理双美元符号块级公式 $$...$$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula) => {
+    return registerFormula(formula, true)
+  })
+
+  // 处理单美元符号行内公式 $...$（避免误匹配货币符号）
+  text = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+    // 检查是否包含数学字符，避免误判
+    if (/[A-Za-z\\{}\^_=+\-*/()]/.test(formula)) {
+      return registerInlineFormula(formula)
+    }
+    return match
+  })
+
   text = autoWrapPlainMathExpressions(text, registerInlineFormula)
   
   text = text.replace(/_{2,}/g, (match) => {
@@ -116,11 +130,23 @@ interface Assignment {
   student_answer?: string
   ai_score?: string
   ai_analysis?: string
+  evaluation_json?: string
+  grading_status?: string
+  grading_error?: string
   submitted_at?: string
 }
 
 const assignment = ref<Assignment | null>(null)
 const loading = ref(false)
+
+const parsedEvaluation = computed(() => {
+  if (!assignment.value?.evaluation_json) return null
+  try {
+    return JSON.parse(assignment.value.evaluation_json)
+  } catch {
+    return null
+  }
+})
 
 // 配置 marked
 marked.setOptions({
@@ -134,42 +160,49 @@ const renderMarkdown = (content: string): string => {
   const protectedText = protectLatexFormulas(content)
   const html = marked(protectedText) as string
   const withLatex = renderProtectedLatex(html)
-  return DOMPurify.sanitize(withLatex)
+  // 配置 DOMPurify 允许 KaTeX 生成的标签和属性
+  return DOMPurify.sanitize(withLatex, {
+    ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtext', 'annotation', 'munderover', 'mtable', 'mtr', 'mtd'],
+    ADD_ATTR: ['xmlns', 'aria-hidden', 'focusable']
+  })
 }
 
-// 分离题目内容和答案解析
-const splitContentAndAnswer = (content: string): { question: string, answer: string } => {
-  if (!content) return { question: '', answer: '' }
-  
-  const separators = [
-    '答案与解析',
-    '答案和解析', 
-    '参考答案',
-    '答案：',
-    '答案:',
-    '解析：',
-    '解析:',
-    '【答案】',
-    '【解析】'
-  ]
-  
-  let splitIndex = -1
-  
-  for (const sep of separators) {
-    const index = content.indexOf(sep)
-    if (index !== -1 && (splitIndex === -1 || index < splitIndex)) {
-      splitIndex = index
+const answerMarkers = ['答案与解析', '答案和解析', '参考答案', '答案：', '答案:', '解析：', '解析:', '【答案】', '【解析】']
+const answerMarkerRegex = /答案与解析|答案和解析|参考答案|答案[：:]|解析[：:]|【答案】|【解析】/
+const questionStartRegex = /^\s*\d+[\.\)]\s+/
+
+// 提取仅题目部分，过滤每题的答案/解析段落，保留后续题目
+const extractQuestionContent = (content: string): string => {
+  if (!content) return ''
+
+  const normalized = content.replace(/\r\n/g, '\n')
+  const lines = normalized.split('\n')
+  const filtered: string[] = []
+  let inAnswerBlock = false
+
+  for (const line of lines) {
+    if (questionStartRegex.test(line)) {
+      inAnswerBlock = false
+      filtered.push(line)
+      continue
+    }
+
+    if (answerMarkerRegex.test(line)) {
+      inAnswerBlock = true
+      continue
+    }
+
+    if (!inAnswerBlock) {
+      filtered.push(line)
     }
   }
-  
-  if (splitIndex !== -1) {
-    return {
-      question: content.substring(0, splitIndex).trim(),
-      answer: content.substring(splitIndex).trim()
-    }
-  }
-  
-  return { question: content, answer: '' }
+
+  return filtered.join('\n').trim()
+}
+
+const hasAnswerSection = (content: string): boolean => {
+  if (!content) return false
+  return answerMarkers.some(marker => content.includes(marker))
 }
 
 // 检查是否已答题
@@ -179,10 +212,19 @@ const isAnswered = computed(() => {
 
 // 获取状态标签
 const getStatusTag = computed(() => {
-  if (isAnswered.value) {
+  if (!isAnswered.value) {
+    return { type: 'warning', text: '待答题' }
+  }
+  if (assignment.value?.grading_status === 'PENDING' || assignment.value?.grading_status === 'RUNNING') {
+    return { type: 'info', text: '批改中' }
+  }
+  if (assignment.value?.grading_status === 'FAILED') {
+    return { type: 'danger', text: '批改失败' }
+  }
+  if (assignment.value?.ai_score) {
     return { type: 'success', text: '已答题' }
   }
-  return { type: 'warning', text: '待答题' }
+  return { type: 'info', text: '已提交' }
 })
 
 // 加载题目详情
@@ -318,12 +360,12 @@ onMounted(() => {
             <div class="card-title">📝 题目内容</div>
           </template>
           <!-- 未答题时只显示题目部分，已答题后显示完整内容 -->
-          <div v-if="!isAnswered" class="content-html markdown-body" v-html="renderMarkdown(splitContentAndAnswer(assignment.content).question)"></div>
+          <div v-if="!isAnswered" class="content-html markdown-body" v-html="renderMarkdown(extractQuestionContent(assignment.content))"></div>
           <div v-else class="content-html markdown-body" v-html="renderMarkdown(assignment.content)"></div>
         </el-card>
 
         <!-- 答案与解析提示（未提交时显示） -->
-        <el-card v-if="!isAnswered && splitContentAndAnswer(assignment.content).answer" class="tip-card" shadow="never">
+        <el-card v-if="!isAnswered && hasAnswerSection(assignment.content)" class="tip-card" shadow="never">
           <el-alert
             title="提示"
             type="warning"
@@ -354,12 +396,30 @@ onMounted(() => {
             <div class="score-analysis-section">
               <div class="score-display">
                 <h4>得分</h4>
-                <div class="score-badge">{{ assignment.ai_score }}</div>
+                <div class="score-badge">{{ assignment.ai_score || (assignment.grading_status === 'FAILED' ? '失败' : '批改中') }}</div>
               </div>
 
               <div class="analysis-display">
                 <h4>💡 AI 分析</h4>
-                <div class="analysis-text markdown-body" v-html="renderMarkdown(assignment.ai_analysis || '')"></div>
+                <div v-if="assignment.grading_status === 'FAILED'" class="analysis-text">
+                  {{ assignment.grading_error || '批改失败，请稍后重试或联系老师。' }}
+                </div>
+                <div v-else-if="assignment.ai_analysis" class="analysis-text markdown-body" v-html="renderMarkdown(assignment.ai_analysis || '')"></div>
+                <div v-else class="analysis-text">AI正在批改中，请稍后刷新查看。</div>
+              </div>
+            </div>
+            <div v-if="parsedEvaluation" class="structured-evaluation">
+              <h4>分题评分</h4>
+              <div v-if="Array.isArray(parsedEvaluation.itemScores) && parsedEvaluation.itemScores.length > 0">
+                <div v-for="(item, idx) in parsedEvaluation.itemScores" :key="`item-${idx}`" class="structured-item">
+                  第{{ item.questionNo }}题：{{ item.score }}（{{ item.comment }}）
+                </div>
+              </div>
+              <div v-if="Array.isArray(parsedEvaluation.weakPoints) && parsedEvaluation.weakPoints.length > 0" class="structured-block">
+                薄弱点：{{ parsedEvaluation.weakPoints.join('；') }}
+              </div>
+              <div v-if="Array.isArray(parsedEvaluation.suggestions) && parsedEvaluation.suggestions.length > 0" class="structured-block">
+                建议：{{ parsedEvaluation.suggestions.join('；') }}
               </div>
             </div>
           </el-card>
@@ -509,6 +569,23 @@ onMounted(() => {
   border-radius: 8px;
   border-left: 4px solid #409EFF;
   line-height: 1.8;
+  color: #606266;
+}
+
+.structured-evaluation {
+  margin-top: 20px;
+  background-color: #f5f7fa;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.structured-item {
+  margin: 6px 0;
+  color: #606266;
+}
+
+.structured-block {
+  margin-top: 10px;
   color: #606266;
 }
 

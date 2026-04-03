@@ -66,6 +66,20 @@ const protectLatexFormulas = (text: string): string => {
     return registerInlineFormula(formula)
   })
 
+  // 处理双美元符号块级公式 $$...$$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula) => {
+    return registerFormula(formula, true)
+  })
+
+  // 处理单美元符号行内公式 $...$（避免误匹配货币符号）
+  text = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+    // 检查是否包含数学字符，避免误判
+    if (/[A-Za-z\\{}\^_=+\-*/()]/.test(formula)) {
+      return registerInlineFormula(formula)
+    }
+    return match
+  })
+
   // 兼容未加 LaTeX 定界符的常见公式写法，例如：σ(z) = 1 / (1 + e^{-z})
   text = autoWrapPlainMathExpressions(text, registerInlineFormula)
   
@@ -111,6 +125,25 @@ const apiClient = axios.create({
   baseURL: '/api',
   withCredentials: true
 })
+
+// 配置 marked
+marked.setOptions({
+  breaks: true,
+  gfm: true
+})
+
+// 渲染 Markdown（与学生页面完全一致）
+const renderMarkdown = (content: string): string => {
+  if (!content) return ''
+  const protectedText = protectLatexFormulas(content)
+  const html = marked(protectedText) as string
+  const withLatex = renderProtectedLatex(html)
+  // 配置 DOMPurify 允许 KaTeX 生成的标签和属性
+  return DOMPurify.sanitize(withLatex, {
+    ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtext', 'annotation', 'munderover', 'mtable', 'mtr', 'mtd'],
+    ADD_ATTR: ['xmlns', 'aria-hidden', 'focusable']
+  })
+}
 
 // 添加历史对话相关变量
 const showHistoryDialog = ref(false)
@@ -218,7 +251,6 @@ const switchToConversation = async (conversationId: number) => {
       // 加载对话历史消息
       const messages = res.data.messages || []
         for (const msg of messages) {
-          let content = msg.content
           let parsedStructuredQuestions: Array<{
             stem: string;
             type: string;
@@ -233,29 +265,26 @@ const switchToConversation = async (conversationId: number) => {
             questionIndex: number;
             message: string;
           }> | undefined = undefined
+          let questionMarkdown = ''
+          let solutionMarkdown = ''
+          
           if (msg.role === 'ai') {
             const structuredQuestions = parseStructuredQuestionsFromMarkdown(msg.content)
             parsedStructuredQuestions = structuredQuestions.length > 0 ? structuredQuestions : undefined
             const qualityIssues = parseQualityIssuesFromMarkdown(msg.content)
             parsedQualityIssues = qualityIssues.length > 0 ? qualityIssues : undefined
-            // 1. 提取并保护 LaTeX 公式
-            const protectedText = protectLatexFormulas(msg.content)
-            // 2. 解析 Markdown
-            const html = await marked.parse(protectedText)
-            // 3. 渲染被保护的 LaTeX 公式
-            const withLatex = renderProtectedLatex(html)
-            // 4. 清理 HTML
-            content = DOMPurify.sanitize(withLatex)
+            
+            // 在Markdown层面分割题目和答案
+            const split = splitMarkdownContent(msg.content)
+            questionMarkdown = split.questionMarkdown
+            solutionMarkdown = split.solutionMarkdown
           }
-
-          const renderedSplit = msg.role === 'ai' ? splitRenderedContent(content) : null
 
           chatHistory.value.push({
             role: msg.role,
-            content,
-            rawContent: msg.role === 'ai' ? msg.content : undefined,
-            renderedQuestionContent: renderedSplit?.questionHtml,
-            renderedSolutionContent: renderedSplit?.solutionHtml,
+            content: msg.content,  // 存储原始Markdown
+            questionMarkdown: msg.role === 'ai' ? questionMarkdown : undefined,
+            solutionMarkdown: msg.role === 'ai' ? solutionMarkdown : undefined,
             structuredQuestions: parsedStructuredQuestions,
             qualityIssues: parsedQualityIssues,
             timestamp: new Date(msg.timestamp),
@@ -314,13 +343,12 @@ const createNewConversation = async () => {
   }
 }
 
-// 修改聊天历史记录的类型定义，增加rawContent字段
+// 聊天历史记录的类型定义 - 只存储Markdown原文，在显示时实时渲染
 const chatHistory = ref<Array<{
   role: string;
-  content: string;
-  rawContent?: string;  // 添加原始内容字段
-  renderedQuestionContent?: string;
-  renderedSolutionContent?: string;
+  content: string;  // 存储Markdown原文
+  questionMarkdown?: string;  // 题目部分的Markdown
+  solutionMarkdown?: string;  // 答案部分的Markdown
   structuredQuestions?: Array<{
     stem: string;
     type: string;
@@ -481,28 +509,33 @@ const buildMarkdownFromResult = (questions: any[], issues: any[]) => {
   return markdownParts.join('\n').trim()
 }
 
-const splitRenderedContent = (htmlContent: string): { questionHtml: string; solutionHtml: string } => {
-  if (!htmlContent) return { questionHtml: '', solutionHtml: '' }
+// 在Markdown层面分割题目和答案（用于分别显示）
+const splitMarkdownContent = (markdown: string): { questionMarkdown: string; solutionMarkdown: string } => {
+  if (!markdown) return { questionMarkdown: '', solutionMarkdown: '' }
 
   const markers = ['答案与解析', '答案和解析', '参考答案', '答案：', '答案:', '【答案】', '【解析】']
-  let splitIndex = -1
+  const lines = markdown.split('\n')
+  let splitLineIndex = -1
 
-  for (const marker of markers) {
-    const idx = htmlContent.indexOf(marker)
-    if (idx !== -1 && (splitIndex === -1 || idx < splitIndex)) {
-      splitIndex = idx
+  // 查找分割点所在的行
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    for (const marker of markers) {
+      if (line.includes(marker)) {
+        splitLineIndex = i
+        break
+      }
     }
+    if (splitLineIndex !== -1) break
   }
 
-  if (splitIndex === -1) {
-    return { questionHtml: htmlContent, solutionHtml: '' }
+  if (splitLineIndex === -1) {
+    return { questionMarkdown: markdown, solutionMarkdown: '' }
   }
 
-  const paragraphStart = htmlContent.lastIndexOf('<p', splitIndex)
-  const safeIndex = paragraphStart !== -1 ? paragraphStart : splitIndex
   return {
-    questionHtml: htmlContent.substring(0, safeIndex),
-    solutionHtml: htmlContent.substring(safeIndex)
+    questionMarkdown: lines.slice(0, splitLineIndex).join('\n').trim(),
+    solutionMarkdown: lines.slice(splitLineIndex).join('\n').trim()
   }
 }
 
@@ -700,17 +733,14 @@ const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) 
     const issues = Array.isArray(result.issues) ? result.issues : []
     const markdownContent = buildMarkdownFromResult(questions, issues)
 
-    const protectedText = protectLatexFormulas(markdownContent)
-    const html = await marked.parse(protectedText)
-    const withLatex = renderProtectedLatex(html)
-    const htmlContent = DOMPurify.sanitize(withLatex)
+    // 在Markdown层面分割题目和答案
+    const { questionMarkdown, solutionMarkdown } = splitMarkdownContent(markdownContent)
 
     chatHistory.value.push({
       role: 'ai',
-      content: htmlContent,
-      rawContent: markdownContent,
-      renderedQuestionContent: splitRenderedContent(htmlContent).questionHtml,
-      renderedSolutionContent: splitRenderedContent(htmlContent).solutionHtml,
+      content: markdownContent,  // 存储原始Markdown
+      questionMarkdown: questionMarkdown,
+      solutionMarkdown: solutionMarkdown,
       structuredQuestions: questions.map((q: any) => ({
         stem: q.stem || '',
         type: q.type || '',
@@ -982,48 +1012,30 @@ const sendAssignmentToCourse = async () => {
   }
 
   sendingAssignment.value = true
-  let successCount = 0
-  let failCount = 0
-  let totalStudents = 0
 
   try {
-    // 为每个选中的消息发送题目
-    for (let i = 0; i < selectedAIMessages.length; i++) {
-      const msg = selectedAIMessages[i]
-      try {
-        // 使用rawContent（Markdown原文）而不是HTML内容
-        const content = msg.rawContent || msg.content
-        const titleWithIndex = selectedAIMessages.length > 1 
-          ? `${sendForm.value.title} (${i + 1})`
-          : sendForm.value.title
+    const payloadAssignments = selectedAIMessages.map((msg, idx) => ({
+      title: selectedAIMessages.length > 1
+        ? `${sendForm.value.title} (${idx + 1})`
+        : sendForm.value.title,
+      content: msg.rawContent || msg.content
+    }))
 
-        const res = await apiClient.post('/assignment/sendToCourse', {
-          content: content,
-          courseCode: sendForm.value.courseCode,
-          title: titleWithIndex
-        })
+    const res = await apiClient.post('/assignment/sendBatchToCourse', {
+      courseCode: sendForm.value.courseCode,
+      assignments: payloadAssignments
+    })
 
-        if (res.data.success) {
-          successCount++
-          totalStudents = res.data.sentCount || 0
-        } else {
-          failCount++
-        }
-      } catch (err) {
-        failCount++
-        console.error('发送单个题目失败:', err)
-      }
-    }
+    const successCount = res.data?.successCount || 0
+    const failCount = res.data?.failCount || 0
+    const totalStudents = res.data?.studentCount || 0
 
     if (successCount > 0) {
-      ElMessage.success(`成功发送 ${successCount} 个题目给 ${totalStudents} 名学生！`)
+      ElMessage.success(`批次发送完成：成功 ${successCount} 个，失败 ${failCount} 个，覆盖 ${totalStudents} 名学生`)
       showSendDialog.value = false
-      // 清空选择
       selectedMessages.value.clear()
-    }
-    
-    if (failCount > 0) {
-      ElMessage.warning(`有 ${failCount} 个题目发送失败`)
+    } else {
+      ElMessage.warning(`批次发送失败：${res.data?.message || '未知错误'}`)
     }
 
   } catch (err: any) {
@@ -1268,16 +1280,16 @@ const sendAssignmentToCourse = async () => {
                   </div>
 
                   <div class="question-part-title">题目</div>
-                  <div class="question-card-stem">{{ q.stem }}</div>
+                  <div class="question-card-stem markdown-body" v-html="renderMarkdown(q.stem)"></div>
                   <div class="question-card-options" v-if="q.options && q.options.length > 0">
-                    <div v-for="(opt, optIdx) in q.options" :key="`${chat.id}-${idx}-opt-${optIdx}`">{{ opt }}</div>
+                    <div class="markdown-body" v-for="(opt, optIdx) in q.options" :key="`${chat.id}-${idx}-opt-${optIdx}`" v-html="renderMarkdown(opt)"></div>
                   </div>
 
                   <div class="question-split-line"></div>
 
                   <div class="question-part-title solution">答案与解析</div>
-                  <div class="question-card-answer">答案：{{ q.answer }}</div>
-                  <div class="question-card-analysis" v-if="q.analysis">解析：{{ q.analysis }}</div>
+                  <div class="question-card-answer markdown-body" v-html="renderMarkdown('答案：' + q.answer)"></div>
+                  <div class="question-card-analysis markdown-body" v-if="q.analysis" v-html="renderMarkdown('解析：' + q.analysis)"></div>
                   <div class="question-card-analysis" v-else>解析：暂无</div>
                   </div>
 
@@ -1294,11 +1306,11 @@ const sendAssignmentToCourse = async () => {
               </div>
               <div v-else>
                 <div class="question-part-title">题目</div>
-                <div class="markdown-body" v-html="chat.renderedQuestionContent || chat.content"></div>
-                <template v-if="chat.renderedSolutionContent">
+                <div class="markdown-body" v-html="renderMarkdown(chat.questionMarkdown || chat.content)"></div>
+                <template v-if="chat.solutionMarkdown">
                   <div class="question-split-line"></div>
                   <div class="question-part-title solution">答案与解析</div>
-                  <div class="markdown-body" v-html="chat.renderedSolutionContent"></div>
+                  <div class="markdown-body" v-html="renderMarkdown(chat.solutionMarkdown)"></div>
                 </template>
               </div>
             </template>

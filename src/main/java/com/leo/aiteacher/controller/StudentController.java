@@ -83,4 +83,30 @@ public class StudentController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("提交答案失败: " + e.getMessage());
         }
     }
+
+    /**
+     * 学生查询某个题目的判题状态
+     * @param assignmentId 题目ID
+     * @return 判题状态
+     */
+    @GetMapping("/answer/{assignmentId}/status")
+    public ResponseEntity<?> getAnswerStatus(@PathVariable Integer assignmentId) {
+        StuDto student = SessionUtils.getCurrentStudent();
+        if (student == null) {
+            logger.warn("未登录或会话失效，无法查询答题状态");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("未登录或会话失效");
+        }
+
+        try {
+            Map<String, Object> result = studentAnswerService.getAnswerStatus(assignmentId, student.getStudentId());
+            if (result.containsKey("success") && (Boolean) result.get("success")) {
+                return ResponseEntity.ok(result);
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
+            }
+        } catch (Exception e) {
+            logger.error("查询答题状态异常", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("查询答题状态失败: " + e.getMessage());
+        }
+    }
 }

@@ -1,20 +1,18 @@
 package com.leo.aiteacher.service.impl;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leo.aiteacher.pojo.dto.AssignmentDto;
+import com.leo.aiteacher.pojo.dto.GradingTaskDto;
 import com.leo.aiteacher.pojo.dto.StudentAnswerDto;
 import com.leo.aiteacher.pojo.mapper.AssignmentMapper;
+import com.leo.aiteacher.pojo.mapper.GradingTaskMapper;
 import com.leo.aiteacher.pojo.mapper.StudentAnswerMapper;
 import com.leo.aiteacher.service.StudentAnswerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,24 +22,23 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
     
     private static final Logger logger = LoggerFactory.getLogger(StudentAnswerServiceImpl.class);
     
-    @Value("${deepseek.api.url}")
-    private String DEEPSEEK_API_URL;
-    
-    @Value("${deepseek.api.key}")
-    private String API_KEY;
-    
     @Autowired
     private StudentAnswerMapper studentAnswerMapper;
     
     @Autowired
     private AssignmentMapper assignmentMapper;
+
+    @Autowired
+    private GradingTaskMapper gradingTaskMapper;
+
+    @Autowired
+    private StudentGradingAsyncService studentGradingAsyncService;
     
     @Override
     public Map<String, Object> submitAnswer(Integer assignmentId, Integer studentId, String studentAnswer) {
         Map<String, Object> result = new HashMap<>();
         
         try {
-            // 1. 验证题目是否存在
             AssignmentDto assignment = assignmentMapper.selectById(assignmentId);
             if (assignment == null) {
                 result.put("success", false);
@@ -49,39 +46,39 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
                 return result;
             }
             
-            // 2. 检查学生是否已经提交过答案
             StudentAnswerDto existingAnswer = studentAnswerMapper.getByAssignmentAndStudent(assignmentId, studentId);
             if (existingAnswer != null) {
                 result.put("success", false);
                 result.put("message", "已经提交过答案，不能重复提交");
                 return result;
             }
-            
-            // 3. 构造AI评分和分析的提示词
-            String promptMessage = constructPromptForEvaluation(assignment, studentAnswer);
-            
-            // 4. 调用DeepSeek API获取评分和分析
-            String aiResponse = callDeepSeekAPI(promptMessage);
-            
-            // 5. 解析AI响应，提取评分和分析
-            Map<String, String> evaluation = parseEvaluation(aiResponse);
-            
-            // 6. 保存学生答案和AI评分结果
+
             StudentAnswerDto studentAnswerDto = new StudentAnswerDto();
             studentAnswerDto.setAssignmentId(assignmentId);
             studentAnswerDto.setStudentId(studentId);
             studentAnswerDto.setStudentAnswer(studentAnswer);
-            studentAnswerDto.setAiScore(evaluation.get("score"));
-            studentAnswerDto.setAiAnalysis(evaluation.get("analysis"));
-            
+            studentAnswerDto.setAiScore(null);
+            studentAnswerDto.setAiAnalysis(null);
+            studentAnswerDto.setGradingStatus("PENDING");
+            studentAnswerDto.setGradingError(null);
             studentAnswerMapper.insert(studentAnswerDto);
-            
-            logger.info("学生答案提交成功，assignmentId={}, studentId={}", assignmentId, studentId);
-            
+
+            GradingTaskDto gradingTask = new GradingTaskDto();
+            gradingTask.setAnswerId(studentAnswerDto.getId());
+            gradingTask.setStatus("PENDING");
+            gradingTask.setRetryCount(0);
+            gradingTaskMapper.insert(gradingTask);
+
+            studentGradingAsyncService.processGradingTask(gradingTask.getId());
+
+            logger.info("学生答案提交成功并进入异步判题，assignmentId={}, studentId={}, answerId={}, taskId={}",
+                    assignmentId, studentId, studentAnswerDto.getId(), gradingTask.getId());
+
             result.put("success", true);
-            result.put("message", "答案提交成功");
-            result.put("score", evaluation.get("score"));
-            result.put("analysis", evaluation.get("analysis"));
+            result.put("message", "答案提交成功，AI正在批改");
+            result.put("answerId", studentAnswerDto.getId());
+            result.put("gradingTaskId", gradingTask.getId());
+            result.put("gradingStatus", "PENDING");
             
         } catch (Exception e) {
             logger.error("提交答案失败", e);
@@ -90,6 +87,37 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
         }
         
         return result;
+    }
+
+    @Override
+    public Map<String, Object> getAnswerStatus(Integer assignmentId, Integer studentId) {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            StudentAnswerDto answer = studentAnswerMapper.getByAssignmentAndStudent(assignmentId, studentId);
+            if (answer == null) {
+                result.put("success", false);
+                result.put("message", "未找到答题记录");
+                return result;
+            }
+
+            result.put("success", true);
+            result.put("assignmentId", assignmentId);
+            result.put("answerId", answer.getId());
+            result.put("gradingStatus", answer.getGradingStatus() == null ? "PENDING" : answer.getGradingStatus());
+            result.put("score", answer.getAiScore());
+            result.put("analysis", answer.getAiAnalysis());
+            result.put("gradingError", answer.getGradingError());
+            result.put("evaluationJson", answer.getEvaluationJson());
+            result.put("submittedAt", answer.getSubmittedAt());
+            result.put("gradingCompletedAt", answer.getGradingCompletedAt());
+            return result;
+        } catch (Exception e) {
+            logger.error("查询答题状态失败，assignmentId={}, studentId={}", assignmentId, studentId, e);
+            result.put("success", false);
+            result.put("message", "查询答题状态失败: " + e.getMessage());
+            return result;
+        }
     }
     
     @Override
@@ -190,6 +218,9 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
             // 3. 更新评分和分析
             answer.setAiScore(score);
             answer.setAiAnalysis(analysis);
+            answer.setGradingStatus("SUCCESS");
+            answer.setGradingError(null);
+            answer.setGradingCompletedAt(LocalDateTime.now());
             studentAnswerMapper.updateById(answer);
             
             logger.info("教师更新学生答案成功，answerId={}, teacherId={}", answerId, teacherId);
@@ -205,102 +236,92 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
         
         return result;
     }
-    
-    /**
-     * 构造用于AI评分的提示词
-     */
-    private String constructPromptForEvaluation(AssignmentDto assignment, String studentAnswer) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("\n\n你是一位专业的教师，需要对学生的每个答题进行评分和分析，评分是可酌情给分，主要面向水平中等偏上学生。\n\n");
-        prompt.append("题目标题：").append(assignment.getTitle()).append("\n\n");
-        prompt.append("题目内容及标准答案：\n").append(assignment.getContent()).append("\n\n");
-        prompt.append("学生的答案：\n").append(studentAnswer).append("\n\n");
-        prompt.append("请按照以下格式输出评分和分析：\n");
-        prompt.append("评分：（给出最终所有题目总和分数）形式为——得分/总分（注意如果有多道题按所有题总分）\n");
-        prompt.append("分析：（给出每道题具体得分，详细分析学生的答题情况（主要针对错题，未满分题目，满分题目不做分析），指出缺点不足，给出相关知识点的建议，总共不超过150字）");
 
-        logger.info(prompt.toString());
-        return prompt.toString();
-    }
-    
-    /**
-     * 调用DeepSeek API
-     */
-    private String callDeepSeekAPI(String message) throws Exception {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", "Bearer " + API_KEY);
-        
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", "deepseek-chat");
-        requestBody.put("messages", List.of(Map.of(
-                "role", "user",
-                "content", message
-        )));
-        
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-        RestTemplate restTemplate = new RestTemplate();
-        
-        logger.info("调用DeepSeek API进行评分和分析");
-        
-        ResponseEntity<String> response = restTemplate.exchange(
-                DEEPSEEK_API_URL,
-                HttpMethod.POST,
-                entity,
-                String.class
-        );
-        
-        ObjectMapper objectMapper = new ObjectMapper();
-        JsonNode rootNode = objectMapper.readTree(response.getBody());
-        JsonNode contentNode = rootNode.path("choices").get(0).path("message").path("content");
-        
-        return contentNode.isMissingNode() || contentNode.isNull() ? "" : contentNode.asText("");
-    }
-    
-    /**
-     * 解析AI返回的评分和分析
-     */
-    private Map<String, String> parseEvaluation(String aiResponse) {
-        Map<String, String> result = new HashMap<>();
-        
-        // 尝试解析"评分："和"分析："格式
-        String score = "";
-        String analysis = "";
-        
-        String[] lines = aiResponse.split("\n");
-        boolean isAnalysisSection = false;
-        StringBuilder analysisBuilder = new StringBuilder();
-        
-        for (String line : lines) {
-            if (line.startsWith("评分：") || line.startsWith("评分:")) {
-                score = line.substring(3).trim();
-            } else if (line.startsWith("分析：") || line.startsWith("分析:")) {
-                isAnalysisSection = true;
-                String analysisContent = line.substring(3).trim();
-                if (!analysisContent.isEmpty()) {
-                    analysisBuilder.append(analysisContent);
-                }
-            } else if (isAnalysisSection) {
-                if (!line.trim().isEmpty()) {
-                    if (analysisBuilder.length() > 0) {
-                        analysisBuilder.append("\n");
-                    }
-                    analysisBuilder.append(line.trim());
-                }
+    @Override
+    public Map<String, Object> regradeAnswer(Integer answerId, Integer teacherId) {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            StudentAnswerDto answer = studentAnswerMapper.selectById(answerId);
+            if (answer == null) {
+                result.put("success", false);
+                result.put("message", "答案记录不存在");
+                return result;
             }
+
+            AssignmentDto assignment = assignmentMapper.selectById(answer.getAssignmentId());
+            if (assignment == null || !assignment.getTeacherId().equals(teacherId)) {
+                result.put("success", false);
+                result.put("message", "无权限重判该答案");
+                return result;
+            }
+
+            answer.setGradingStatus("PENDING");
+            answer.setGradingError(null);
+            answer.setAiScore(null);
+            answer.setAiAnalysis(null);
+            answer.setEvaluationJson(null);
+            answer.setRawResponse(null);
+            answer.setGradingStartedAt(null);
+            answer.setGradingCompletedAt(null);
+            studentAnswerMapper.updateById(answer);
+
+            GradingTaskDto gradingTask = new GradingTaskDto();
+            gradingTask.setAnswerId(answerId);
+            gradingTask.setStatus("PENDING");
+            gradingTask.setRetryCount(0);
+            gradingTaskMapper.insert(gradingTask);
+
+            studentGradingAsyncService.processGradingTask(gradingTask.getId());
+
+            result.put("success", true);
+            result.put("message", "已触发重新判题");
+            result.put("answerId", answerId);
+            result.put("gradingTaskId", gradingTask.getId());
+            return result;
+        } catch (Exception e) {
+            logger.error("重新判题失败，answerId={}, teacherId={}", answerId, teacherId, e);
+            result.put("success", false);
+            result.put("message", "重新判题失败: " + e.getMessage());
+            return result;
         }
-        
-        analysis = analysisBuilder.toString();
-        
-        // 如果没有解析到评分或分析，使用原始响应
-        if (score.isEmpty() && analysis.isEmpty()) {
-            analysis = aiResponse;
-            score = "待评";
-        }
-        
-        result.put("score", score);
-        result.put("analysis", analysis);
-        
-        return result;
     }
+
+    @Override
+    public Map<String, Object> getAnswerStatusForTeacher(Integer answerId, Integer teacherId) {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            StudentAnswerDto answer = studentAnswerMapper.selectById(answerId);
+            if (answer == null) {
+                result.put("success", false);
+                result.put("message", "答案记录不存在");
+                return result;
+            }
+
+            AssignmentDto assignment = assignmentMapper.selectById(answer.getAssignmentId());
+            if (assignment == null || !assignment.getTeacherId().equals(teacherId)) {
+                result.put("success", false);
+                result.put("message", "无权限查看该答案状态");
+                return result;
+            }
+
+            result.put("success", true);
+            result.put("answerId", answer.getId());
+            result.put("assignmentId", answer.getAssignmentId());
+            result.put("gradingStatus", answer.getGradingStatus() == null ? "PENDING" : answer.getGradingStatus());
+            result.put("score", answer.getAiScore());
+            result.put("analysis", answer.getAiAnalysis());
+            result.put("gradingError", answer.getGradingError());
+            result.put("evaluationJson", answer.getEvaluationJson());
+            result.put("gradingCompletedAt", answer.getGradingCompletedAt());
+            return result;
+        } catch (Exception e) {
+            logger.error("教师查询判题状态失败，answerId={}, teacherId={}", answerId, teacherId, e);
+            result.put("success", false);
+            result.put("message", "查询失败: " + e.getMessage());
+            return result;
+        }
+    }
+    
 }

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
 @RestController
@@ -62,6 +63,49 @@ public class AssignmentController {
         } catch (Exception e) {
             logger.error("发送题目异常", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("发送题目失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 批量发送题目给课程学生
+     * @param requestData 包含courseCode和assignments数组
+     * @return 批次发送结果
+     */
+    @PostMapping("/sendBatchToCourse")
+    public ResponseEntity<?> sendBatchToCourse(@RequestBody Map<String, Object> requestData) {
+        TeacherDto teacher = SessionUtils.getCurrentTeacher();
+        if (teacher == null) {
+            logger.warn("未登录或会话失效，无法批量发送题目");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("未登录或会话失效");
+        }
+
+        try {
+            String courseCode = (String) requestData.get("courseCode");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> assignments = (List<Map<String, Object>>) requestData.get("assignments");
+            String sendBatchId = requestData.get("sendBatchId") == null
+                    ? UUID.randomUUID().toString()
+                    : String.valueOf(requestData.get("sendBatchId"));
+
+            if (courseCode == null || courseCode.trim().isEmpty() || assignments == null || assignments.isEmpty()) {
+                logger.warn("批量发送请求参数不完整: courseCode={}, assignments={}", courseCode, assignments == null ? "null" : assignments.size());
+                return ResponseEntity.badRequest().body("请求参数不完整");
+            }
+
+            logger.info("老师批量发送题目，teacherId={}, courseCode={}, batchId={}, count={}",
+                    teacher.getTeacherId(), courseCode, sendBatchId, assignments.size());
+
+            Map<String, Object> result = assignmentService.sendAssignmentsBatchToCourse(
+                    assignments, courseCode, teacher.getTeacherId(), sendBatchId);
+
+            if ((Boolean) result.get("success")) {
+                return ResponseEntity.ok(result);
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
+            }
+        } catch (Exception e) {
+            logger.error("批量发送题目异常", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("批量发送失败: " + e.getMessage());
         }
     }
     

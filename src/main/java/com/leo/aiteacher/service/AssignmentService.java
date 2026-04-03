@@ -15,6 +15,16 @@ public interface AssignmentService {
      * @return 发送结果
      */
     Map<String, Object> sendAssignmentToCourse(Integer messageId, String content, String courseCode, Integer teacherId, String title);
+
+    /**
+     * 批量发送题目到课程
+     * @param assignments 题目列表，每项包含title/content/messageId(可选)
+     * @param courseCode 课程代码
+     * @param teacherId 教师ID
+     * @param sendBatchId 批次ID
+     * @return 批量发送结果明细
+     */
+    Map<String, Object> sendAssignmentsBatchToCourse(List<Map<String, Object>> assignments, String courseCode, Integer teacherId, String sendBatchId);
     
     /**
      * 获取学生收到的题目列表

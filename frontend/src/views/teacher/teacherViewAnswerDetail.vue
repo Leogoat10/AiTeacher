@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { useRouter, useRoute } from 'vue-router'
@@ -66,6 +66,20 @@ const protectLatexFormulas = (text: string): string => {
     return registerInlineFormula(formula)
   })
 
+  // 处理双美元符号块级公式 $$...$$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula) => {
+    return registerFormula(formula, true)
+  })
+
+  // 处理单美元符号行内公式 $...$（避免误匹配货币符号）
+  text = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+    // 检查是否包含数学字符，避免误判
+    if (/[A-Za-z\\{}\^_=+\-*/()]/.test(formula)) {
+      return registerInlineFormula(formula)
+    }
+    return match
+  })
+
   text = autoWrapPlainMathExpressions(text, registerInlineFormula)
   
   text = text.replace(/_{2,}/g, (match) => {
@@ -108,6 +122,9 @@ interface StudentAnswer {
   studentAnswer: string
   aiScore: string
   aiAnalysis: string
+  evaluationJson?: string
+  gradingStatus?: string
+  gradingError?: string
   submittedAt: string
 }
 
@@ -119,6 +136,17 @@ const courseCode = ref('')
 const editMode = ref(false)
 const editScore = ref('')
 const editAnalysis = ref('')
+const regrading = ref(false)
+let regradePollTimer: number | null = null
+
+const parsedEvaluation = computed(() => {
+  if (!answerDetail.value?.evaluationJson) return null
+  try {
+    return JSON.parse(answerDetail.value.evaluationJson)
+  } catch {
+    return null
+  }
+})
 
 marked.setOptions({
   breaks: true,
@@ -130,7 +158,11 @@ const renderMarkdown = (content: string): string => {
   const protectedText = protectLatexFormulas(content)
   const html = marked(protectedText) as string
   const withLatex = renderProtectedLatex(html)
-  return DOMPurify.sanitize(withLatex)
+  // 配置 DOMPurify 允许 KaTeX 生成的标签和属性
+  return DOMPurify.sanitize(withLatex, {
+    ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtext', 'annotation', 'munderover', 'mtable', 'mtr', 'mtd'],
+    ADD_ATTR: ['xmlns', 'aria-hidden', 'focusable']
+  })
 }
 
 const loadAnswerDetail = async () => {
@@ -145,6 +177,13 @@ const loadAnswerDetail = async () => {
       answerDetail.value = found
       editScore.value = found.aiScore
       editAnalysis.value = found.aiAnalysis
+      if (found.gradingStatus === 'PENDING' || found.gradingStatus === 'RUNNING') {
+        regrading.value = true
+        stopRegradePolling()
+        regradePollTimer = window.setInterval(() => {
+          pollAnswerStatus()
+        }, 4000)
+      }
     } else {
       ElMessage.error('未找到答题记录')
       goBack()
@@ -207,6 +246,60 @@ const saveEdit = async () => {
   }
 }
 
+const stopRegradePolling = () => {
+  if (regradePollTimer !== null) {
+    window.clearInterval(regradePollTimer)
+    regradePollTimer = null
+  }
+}
+
+const pollAnswerStatus = async () => {
+  if (!answerDetail.value) return
+  try {
+    const res = await apiClient.get(`/studentAnswer/${answerDetail.value.id}/status`)
+    if (res.data?.success) {
+      answerDetail.value.gradingStatus = res.data.gradingStatus
+      answerDetail.value.aiScore = res.data.score || ''
+      answerDetail.value.aiAnalysis = res.data.analysis || ''
+      answerDetail.value.gradingError = res.data.gradingError || ''
+      answerDetail.value.evaluationJson = res.data.evaluationJson || ''
+      if (res.data.gradingStatus === 'SUCCESS' || res.data.gradingStatus === 'FAILED') {
+        stopRegradePolling()
+        regrading.value = false
+      }
+    }
+  } catch (err) {
+    console.error('轮询重判状态失败:', err)
+  }
+}
+
+const triggerRegrade = async () => {
+  if (!answerDetail.value) return
+  loading.value = true
+  try {
+    const res = await apiClient.post(`/studentAnswer/${answerDetail.value.id}/regrade`)
+    if (res.data?.success) {
+      ElMessage.success('已触发重新判题')
+      answerDetail.value.gradingStatus = 'PENDING'
+      answerDetail.value.aiScore = ''
+      answerDetail.value.aiAnalysis = ''
+      answerDetail.value.gradingError = ''
+      regrading.value = true
+      stopRegradePolling()
+      regradePollTimer = window.setInterval(() => {
+        pollAnswerStatus()
+      }, 4000)
+    } else {
+      ElMessage.error(res.data?.message || '触发重判失败')
+    }
+  } catch (err: any) {
+    console.error('触发重判失败:', err)
+    ElMessage.error(err.response?.data?.message || err.response?.data || '触发重判失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 const formatDate = (dateStr: string): string => {
   if (!dateStr) return ''
   const date = new Date(dateStr)
@@ -238,6 +331,10 @@ onMounted(() => {
     router.push('/answerManagement')
   }
 })
+
+onUnmounted(() => {
+  stopRegradePolling()
+})
 </script>
 
 <template>
@@ -250,6 +347,10 @@ onMounted(() => {
           <h2 class="page-title">{{ answerDetail.assignmentTitle }}</h2>
           <div class="header-actions">
             <el-tag type="success" size="large">{{ studentName }}</el-tag>
+            <el-tag v-if="answerDetail.gradingStatus" :type="answerDetail.gradingStatus === 'SUCCESS' ? 'success' : (answerDetail.gradingStatus === 'FAILED' ? 'danger' : 'info')" size="large">
+              {{ answerDetail.gradingStatus === 'SUCCESS' ? '判题完成' : (answerDetail.gradingStatus === 'FAILED' ? '判题失败' : '判题中') }}
+            </el-tag>
+            <el-button type="warning" :loading="regrading" @click="triggerRegrade">重新AI判题</el-button>
             <el-button v-if="!editMode" type="primary" @click="toggleEditMode">修改评分</el-button>
             <template v-else>
               <el-button @click="toggleEditMode">取消</el-button>
@@ -303,11 +404,31 @@ onMounted(() => {
           <div v-if="!editMode" class="score-display">
             <div class="score-item">
               <span class="score-label">评分：</span>
-              <el-tag type="warning" size="large">{{ answerDetail.aiScore }}</el-tag>
+              <el-tag type="warning" size="large">{{ answerDetail.aiScore || (answerDetail.gradingStatus === 'FAILED' ? '失败' : '批改中') }}</el-tag>
             </div>
             <div class="analysis-content">
               <span class="score-label">分析：</span>
-              <div class="analysis-box markdown-body" v-html="renderMarkdown(answerDetail.aiAnalysis)"></div>
+              <div v-if="answerDetail.gradingStatus === 'FAILED'" class="analysis-box">
+                {{ answerDetail.gradingError || '判题失败，请重试' }}
+              </div>
+              <div v-else-if="answerDetail.aiAnalysis" class="analysis-box markdown-body" v-html="renderMarkdown(answerDetail.aiAnalysis)"></div>
+              <div v-else class="analysis-box">AI正在判题中，请稍后刷新。</div>
+            </div>
+            <div v-if="parsedEvaluation" class="analysis-content">
+              <span class="score-label">结构化明细：</span>
+              <div class="analysis-box">
+                <div v-if="Array.isArray(parsedEvaluation.itemScores)">
+                  <div v-for="(item, idx) in parsedEvaluation.itemScores" :key="`score-${idx}`">
+                    第{{ item.questionNo }}题：{{ item.score }}（{{ item.comment }}）
+                  </div>
+                </div>
+                <div v-if="Array.isArray(parsedEvaluation.weakPoints) && parsedEvaluation.weakPoints.length > 0">
+                  薄弱点：{{ parsedEvaluation.weakPoints.join('；') }}
+                </div>
+                <div v-if="Array.isArray(parsedEvaluation.suggestions) && parsedEvaluation.suggestions.length > 0">
+                  建议：{{ parsedEvaluation.suggestions.join('；') }}
+                </div>
+              </div>
             </div>
           </div>
 

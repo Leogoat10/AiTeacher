@@ -505,12 +505,13 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
         prompt.append("3) 每题必须包含：题干、题型、答案、解析。\n");
         prompt.append("4) 同一批次题目尽量避免重复。\n");
         prompt.append("5) 当历史上下文与本轮参数冲突时，优先级为：本轮参数 > 本轮补充要求 > 历史上下文。\n");
+        prompt.append("6) 数学公式必须使用LaTeX格式：行内公式用 \\(公式\\)，独立公式用 \\[公式\\]。禁止使用 $公式$ 或 $$公式$$ 格式。\n");
         if (useContext) {
             prompt.append("6) 当前是“上下文改写模式”：默认基于最近一轮题目做定向改写，不要重新生成完全不同的新题组。\n");
-            prompt.append("7) 若用户未明确要求改变科目/题型/题量，必须保持这些维度与最近一轮一致。\n");
+            prompt.append("8) 若用户未明确要求改变科目/题型/题量，必须保持这些维度与最近一轮一致。\n");
             prompt.append("8) 用户若仅要求“更难/更简单/更贴近应用”，只能做对应维度调整，其他维度保持不变。\n");
         } else {
-            prompt.append("6) 普通模式下按本轮参数独立生成。\n");
+            prompt.append("7) 普通模式下按本轮参数独立生成。\n");
         }
         return prompt.toString();
     }
@@ -573,6 +574,7 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
         prompt.append("    }\n");
         prompt.append("  ]\n");
         prompt.append("}\n");
+        prompt.append("示例：题干可以写成 \"计算 \\\\(x^2 + y^2\\\\) 的值\" 或 \"方程 \\\\[E = mc^2\\\\] 表示质能关系\"\n");
         if (useContext) {
             prompt.append("额外要求：在保证JSON结构不变前提下，输出内容应体现“基于历史题组改写”的连续性。\n");
         }

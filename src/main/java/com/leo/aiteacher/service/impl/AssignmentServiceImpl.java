@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class AssignmentServiceImpl implements AssignmentService {
@@ -39,58 +40,42 @@ public class AssignmentServiceImpl implements AssignmentService {
         Map<String, Object> result = new HashMap<>();
         
         try {
-            // 1. 验证课程是否存在且属于该教师
-            Integer courseCount = courseMapper.countByCourseCodeAndTeacherId(courseCode, teacherId);
-            if (courseCount == null || courseCount == 0) {
+            if (!hasCoursePermission(courseCode, teacherId)) {
                 result.put("success", false);
                 result.put("message", "课程不存在或无权限");
                 return result;
             }
             
-            // 2. 验证题目内容不为空
+            if (title == null || title.trim().isEmpty()) {
+                result.put("success", false);
+                result.put("message", "题目标题不能为空");
+                return result;
+            }
+
             if (content == null || content.trim().isEmpty()) {
                 result.put("success", false);
                 result.put("message", "题目内容不能为空");
                 return result;
             }
-            
-            // 3. 创建题目记录
-            AssignmentDto assignment = new AssignmentDto();
-            assignment.setMessageId(messageId); // messageId可以为null
-            assignment.setTeacherId(teacherId);
-            assignment.setCourseCode(courseCode);
-            assignment.setTitle(title);
-            assignment.setContent(content);
-            
-            assignmentMapper.insert(assignment);
-            logger.info("创建题目记录成功，assignmentId={}", assignment.getId());
-            
-            // 4. 获取课程中的所有学生
+
             List<StuDto> students = studentMapper.listByCourseCode(courseCode);
             if (students == null || students.isEmpty()) {
                 result.put("success", false);
                 result.put("message", "课程中没有学生");
                 return result;
             }
-            
-            // 5. 为每个学生创建题目接收记录
-            int sentCount = 0;
-            for (StuDto student : students) {
-                StudentAssignmentDto studentAssignment = new StudentAssignmentDto();
-                studentAssignment.setAssignmentId(assignment.getId());
-                studentAssignment.setStudentId(student.getStudentId());
-                studentAssignment.setIsRead(false);
-                
-                studentAssignmentMapper.insert(studentAssignment);
-                sentCount++;
-            }
-            
-            logger.info("题目发送成功，发送给{}个学生", sentCount);
+
+            String singleBatchId = "single-" + UUID.randomUUID();
+            AssignmentDto assignment = createAssignment(messageId, content, courseCode, teacherId, title, singleBatchId);
+            int sentCount = bindAssignmentToStudents(assignment.getId(), students);
+
+            logger.info("题目发送成功，assignmentId={}, sendBatchId={}, sentCount={}", assignment.getId(), singleBatchId, sentCount);
             
             result.put("success", true);
             result.put("message", "题目发送成功");
             result.put("assignmentId", assignment.getId());
             result.put("sentCount", sentCount);
+            result.put("sendBatchId", singleBatchId);
             
         } catch (Exception e) {
             logger.error("发送题目失败", e);
@@ -130,5 +115,125 @@ public class AssignmentServiceImpl implements AssignmentService {
             logger.error("获取课程题目列表失败", e);
             return null;
         }
+    }
+
+    @Override
+    public Map<String, Object> sendAssignmentsBatchToCourse(List<Map<String, Object>> assignments, String courseCode, Integer teacherId, String sendBatchId) {
+        Map<String, Object> result = new HashMap<>();
+
+        if (assignments == null || assignments.isEmpty()) {
+            result.put("success", false);
+            result.put("message", "题目列表不能为空");
+            return result;
+        }
+
+        if (!hasCoursePermission(courseCode, teacherId)) {
+            result.put("success", false);
+            result.put("message", "课程不存在或无权限");
+            return result;
+        }
+
+        List<StuDto> students = studentMapper.listByCourseCode(courseCode);
+        if (students == null || students.isEmpty()) {
+            result.put("success", false);
+            result.put("message", "课程中没有学生");
+            return result;
+        }
+
+        int successCount = 0;
+        int failCount = 0;
+        List<Map<String, Object>> itemResults = new java.util.ArrayList<>();
+
+        for (int i = 0; i < assignments.size(); i++) {
+            Map<String, Object> item = assignments.get(i);
+            Map<String, Object> itemResult = new HashMap<>();
+            itemResult.put("index", i);
+
+            try {
+                Integer messageId = parseInteger(item.get("messageId"));
+                String title = toSafeString(item.get("title"));
+                String content = toSafeString(item.get("content"));
+
+                if (title == null || title.trim().isEmpty()) {
+                    throw new IllegalArgumentException("题目标题不能为空");
+                }
+                if (content == null || content.trim().isEmpty()) {
+                    throw new IllegalArgumentException("题目内容不能为空");
+                }
+
+                AssignmentDto assignment = createAssignment(messageId, content, courseCode, teacherId, title, sendBatchId);
+                int sentCount = bindAssignmentToStudents(assignment.getId(), students);
+
+                successCount++;
+                itemResult.put("success", true);
+                itemResult.put("message", "发送成功");
+                itemResult.put("assignmentId", assignment.getId());
+                itemResult.put("title", title);
+                itemResult.put("sentCount", sentCount);
+            } catch (Exception e) {
+                failCount++;
+                itemResult.put("success", false);
+                itemResult.put("message", e.getMessage());
+                itemResult.put("title", toSafeString(item.get("title")));
+                logger.error("批量发送题目失败，index={}, sendBatchId={}", i, sendBatchId, e);
+            }
+
+            itemResults.add(itemResult);
+        }
+
+        result.put("success", successCount > 0);
+        result.put("message", failCount == 0 ? "批量发送成功" : "批量发送完成，部分失败");
+        result.put("sendBatchId", sendBatchId);
+        result.put("successCount", successCount);
+        result.put("failCount", failCount);
+        result.put("totalCount", assignments.size());
+        result.put("studentCount", students.size());
+        result.put("results", itemResults);
+        return result;
+    }
+
+    private boolean hasCoursePermission(String courseCode, Integer teacherId) {
+        Integer courseCount = courseMapper.countByCourseCodeAndTeacherId(courseCode, teacherId);
+        return courseCount != null && courseCount > 0;
+    }
+
+    private AssignmentDto createAssignment(Integer messageId, String content, String courseCode, Integer teacherId, String title, String sendBatchId) {
+        AssignmentDto assignment = new AssignmentDto();
+        assignment.setMessageId(messageId);
+        assignment.setTeacherId(teacherId);
+        assignment.setCourseCode(courseCode);
+        assignment.setTitle(title);
+        assignment.setContent(content);
+        assignment.setSendBatchId(sendBatchId);
+        assignmentMapper.insert(assignment);
+        return assignment;
+    }
+
+    private int bindAssignmentToStudents(Integer assignmentId, List<StuDto> students) {
+        int sentCount = 0;
+        for (StuDto student : students) {
+            StudentAssignmentDto studentAssignment = new StudentAssignmentDto();
+            studentAssignment.setAssignmentId(assignmentId);
+            studentAssignment.setStudentId(student.getStudentId());
+            studentAssignment.setIsRead(false);
+            studentAssignmentMapper.insert(studentAssignment);
+            sentCount++;
+        }
+        return sentCount;
+    }
+
+    private Integer parseInteger(Object value) {
+        if (value == null) return null;
+        if (value instanceof Integer intVal) return intVal;
+        if (value instanceof Number number) return number.intValue();
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String toSafeString(Object value) {
+        return value == null ? null : value.toString();
     }
 }

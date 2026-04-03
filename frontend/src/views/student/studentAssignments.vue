@@ -1,13 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import { useRouter, useRoute } from 'vue-router'
 import { Clock, User, School, Edit, Check } from '@element-plus/icons-vue'
-import { marked } from 'marked'
-import katex from 'katex'
-import DOMPurify from 'dompurify'
-import 'katex/dist/katex.min.css'
 
 const router = useRouter()
 const route = useRoute()
@@ -16,97 +12,6 @@ const apiClient = axios.create({
   baseURL: '/api',
   withCredentials: true
 })
-
-// 占位符前缀，用于保护 LaTeX 公式和下划线
-const LATEX_PLACEHOLDER_PREFIX = 'LATEXFORMULA'
-const UNDERSCORE_PLACEHOLDER_PREFIX = 'UNDERSCOREBLANK'
-const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
-const underscoreStore: Map<string, string> = new Map()
-
-const autoWrapPlainMathExpressions = (text: string, registerInlineFormula: (formula: string) => string): string => {
-  if (!text) return text
-  const exprRegex = /([A-Za-zΑ-Ωα-ωσθμλπΔΣΩ][A-Za-z0-9Α-Ωα-ωσθμλπΔΣΩ_]*(?:\([^()\n]{1,40}\))?\s*=\s*[^,，。；;\n]{1,120})/g
-  return text.split('\n').map((line) => {
-    if (
-      !line ||
-      line.includes(LATEX_PLACEHOLDER_PREFIX) ||
-      line.includes('\\(') ||
-      line.includes('\\[') ||
-      line.includes('`') ||
-      /^\s*([#>*-]|\d+\.)\s+/.test(line)
-    ) {
-      return line
-    }
-    return line.replace(exprRegex, (match) => {
-      const normalized = match.trim()
-      const hasMathToken = /[+\-*/^_()]|[Α-Ωα-ωσθμλπΔΣΩ]|e\^\{?[-+]?[A-Za-z0-9]/.test(normalized)
-      if (!hasMathToken) return match
-      return registerInlineFormula(normalized)
-    })
-  }).join('\n')
-}
-
-// 提取并保护 LaTeX 公式和下划线，替换为占位符
-const protectLatexFormulas = (text: string): string => {
-  latexFormulaStore.clear()
-  underscoreStore.clear()
-  let counter = 0
-  let underscoreCounter = 0
-  const registerFormula = (formula: string, displayMode: boolean) => {
-    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}${displayMode ? 'DISPLAY' : 'INLINE'}${counter}ENDLATEX`
-    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode })
-    counter++
-    return placeholder
-  }
-  const registerInlineFormula = (formula: string) => registerFormula(formula, false)
-  
-  // 先处理块级公式 \[...\]
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => {
-    return registerFormula(formula, true)
-  })
-  
-  // 再处理行内公式 \(...\)
-  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula) => {
-    return registerInlineFormula(formula)
-  })
-
-  text = autoWrapPlainMathExpressions(text, registerInlineFormula)
-  
-  // 保护填空题中的下划线（连续的下划线，通常2个或更多）
-  text = text.replace(/_{2,}/g, (match) => {
-    const placeholder = `${UNDERSCORE_PLACEHOLDER_PREFIX}${underscoreCounter}ENDUNDERSCORE`
-    underscoreStore.set(placeholder, match)
-    underscoreCounter++
-    return placeholder
-  })
-  
-  return text
-}
-
-// 渲染被保护的 LaTeX 公式和下划线
-const renderProtectedLatex = (html: string): string => {
-  // 先渲染 LaTeX 公式
-  latexFormulaStore.forEach((data, placeholder) => {
-    try {
-      const rendered = katex.renderToString(data.formula, {
-        displayMode: data.displayMode,
-        throwOnError: false,
-        output: 'html'
-      })
-      html = html.replace(new RegExp(placeholder, 'g'), rendered)
-    } catch (e) {
-      console.error('KaTeX render error:', e, 'Formula:', data.formula)
-    }
-  })
-  
-  // 恢复下划线（用带样式的span包裹，避免被当作普通文本处理）
-  underscoreStore.forEach((underscores, placeholder) => {
-    const styledUnderscores = `<span class="fill-blank">${underscores}</span>`
-    html = html.replace(new RegExp(placeholder, 'g'), styledUnderscores)
-  })
-  
-  return html
-}
 
 interface Assignment {
   id: number
@@ -121,47 +26,35 @@ interface Assignment {
   student_answer?: string
   ai_score?: string
   ai_analysis?: string
+  grading_status?: string
+  grading_error?: string
   submitted_at?: string
 }
 
 const assignments = ref<Assignment[]>([])
 const loading = ref(false)
-const showResultDialog = ref(false)
-const evaluationResult = ref<{
-  score: string
-  analysis: string
-} | null>(null)
-
-// 配置 marked
-marked.setOptions({
-  breaks: true,
-  gfm: true
-})
-
-// 渲染 Markdown
-const renderMarkdown = (content: string): string => {
-  if (!content) return ''
-  // 1. 提取并保护 LaTeX 公式
-  const protectedText = protectLatexFormulas(content)
-  // 2. 解析 Markdown
-  const html = marked(protectedText) as string
-  // 3. 渲染被保护的 LaTeX 公式
-  const withLatex = renderProtectedLatex(html)
-  // 4. 清理 HTML
-  return DOMPurify.sanitize(withLatex)
-}
+let statusPollTimer: number | null = null
 
 // 检查是否已答题
 const isAnswered = (assignment: Assignment): boolean => {
-  return !!(assignment.student_answer || assignment.ai_score)
+  return !!assignment.student_answer
 }
 
 // 获取状态标签
 const getStatusTag = (assignment: Assignment) => {
-  if (isAnswered(assignment)) {
+  if (!isAnswered(assignment)) {
+    return { type: 'warning', text: '待答题' }
+  }
+  if (assignment.grading_status === 'PENDING' || assignment.grading_status === 'RUNNING') {
+    return { type: 'info', text: '批改中' }
+  }
+  if (assignment.grading_status === 'FAILED') {
+    return { type: 'danger', text: '批改失败' }
+  }
+  if (assignment.ai_score) {
     return { type: 'success', text: '已答题' }
   }
-  return { type: 'warning', text: '待答题' }
+  return { type: 'info', text: '已提交' }
 }
 
 // 加载题目列表
@@ -171,6 +64,7 @@ const loadAssignments = async () => {
     const res = await apiClient.get('/student/assignments')
     if (res.data) {
       assignments.value = res.data
+      manageStatusPolling()
     }
   } catch (err: any) {
     console.error('加载题目失败:', err)
@@ -182,6 +76,55 @@ const loadAssignments = async () => {
     }
   } finally {
     loading.value = false
+  }
+}
+
+const pollPendingStatuses = async () => {
+  const pendingAssignments = assignments.value.filter(
+    (a) => a.student_answer && (a.grading_status === 'PENDING' || a.grading_status === 'RUNNING' || !a.grading_status)
+  )
+
+  if (pendingAssignments.length === 0) {
+    stopStatusPolling()
+    return
+  }
+
+  for (const item of pendingAssignments) {
+    try {
+      const res = await apiClient.get(`/student/answer/${item.assignment_id}/status`)
+      if (res.data?.success) {
+        item.grading_status = res.data.gradingStatus
+        item.ai_score = res.data.score
+        item.ai_analysis = res.data.analysis
+        item.grading_error = res.data.gradingError
+      }
+    } catch (err) {
+      console.error('轮询判题状态失败:', err)
+    }
+  }
+}
+
+const stopStatusPolling = () => {
+  if (statusPollTimer !== null) {
+    window.clearInterval(statusPollTimer)
+    statusPollTimer = null
+  }
+}
+
+const manageStatusPolling = () => {
+  const hasPending = assignments.value.some(
+    (a) => a.student_answer && (a.grading_status === 'PENDING' || a.grading_status === 'RUNNING' || !a.grading_status)
+  )
+
+  if (!hasPending) {
+    stopStatusPolling()
+    return
+  }
+
+  if (statusPollTimer === null) {
+    statusPollTimer = window.setInterval(() => {
+      pollPendingStatuses()
+    }, 5000)
   }
 }
 
@@ -205,17 +148,14 @@ const formatDate = (dateString: string) => {
 onMounted(() => {
   loadAssignments()
   
-  // 检查是否有提交成功的返回参数
   if (route.query.submitted === 'true') {
-    evaluationResult.value = {
-      score: route.query.score as string || '',
-      analysis: route.query.analysis as string || ''
-    }
-    showResultDialog.value = true
-    
-    // 清除URL参数
+    ElMessage.success('答案已提交，AI正在批改，可在列表查看状态')
     router.replace({ path: '/studentAssignments' })
   }
+})
+
+onUnmounted(() => {
+  stopStatusPolling()
 })
 </script>
 
@@ -271,13 +211,10 @@ onMounted(() => {
             <el-icon><Check /></el-icon>
             <span class="score-text">得分：{{ assignment.ai_score }}</span>
           </div>
+          <div v-if="assignment.grading_status === 'FAILED' && assignment.grading_error" class="info-item" style="color:#f56c6c;">
+            <span>批改失败：{{ assignment.grading_error }}</span>
+          </div>
         </div>
-
-<!--        <div class="assignment-preview">
-          &lt;!&ndash; 预览时只显示题目部分，不显示答案 &ndash;&gt;
-          <div class="content-preview" v-html="renderMarkdown(splitContentAndAnswer(assignment.content).question.substring(0, 150))"></div>
-          <span v-if="splitContentAndAnswer(assignment.content).question.length > 150">...</span>
-        </div>-->
 
         <div class="card-footer">
           <el-button type="primary" size="small" @click="viewDetail(assignment)">
@@ -296,54 +233,13 @@ onMounted(() => {
             v-else
             type="info" 
             size="small" 
-            :icon="Check" 
             disabled
           >
-            已完成
+            {{ assignment.grading_status === 'SUCCESS' || assignment.ai_score ? '已完成' : (assignment.grading_status === 'FAILED' ? '批改失败' : '批改中') }}
           </el-button>
         </div>
       </el-card>
     </div>
-
-    <!-- 评分结果对话框 -->
-    <el-dialog
-      v-model="showResultDialog"
-      title="📊 答题结果"
-      width="800px"
-      :close-on-click-modal="false"
-    >
-      <div v-if="evaluationResult" class="result-container">
-        <el-result
-          icon="success"
-          title="答案已提交成功！"
-          sub-title="AI已完成评分和分析"
-        >
-          <template #extra>
-            <div class="result-content">
-              <div class="score-section">
-                <h3>📈 评分</h3>
-                <div class="score-value">{{ evaluationResult.score }}</div>
-              </div>
-
-              <el-divider />
-
-              <div class="analysis-section">
-                <h3>💡 详细分析</h3>
-                <div class="analysis-content markdown-body" v-html="renderMarkdown(evaluationResult.analysis)"></div>
-              </div>
-            </div>
-          </template>
-        </el-result>
-      </div>
-
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button type="primary" @click="showResultDialog = false">
-            知道了
-          </el-button>
-        </span>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -628,3 +524,5 @@ onMounted(() => {
 
 }
 </style>
+
+

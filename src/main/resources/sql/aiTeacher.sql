@@ -208,3 +208,56 @@ ALTER TABLE aiteacher.messages
     ADD COLUMN structured_status VARCHAR(50) NULL COMMENT '结构化处理状态';
 
 
+-- =========================
+-- Phase 1（第1周）：发送批次追踪与判题调用治理
+-- =========================
+
+-- 1) 题目发送批次ID（用于批次追踪与审计）
+ALTER TABLE aiteacher.assignments
+    ADD COLUMN send_batch_id VARCHAR(64) NULL COMMENT '发送批次ID';
+
+CREATE INDEX idx_assignments_send_batch
+    ON aiteacher.assignments (send_batch_id);
+
+-- 2) 学生答案判题状态字段（第2周异步判题预留）
+ALTER TABLE aiteacher.student_answers
+    ADD COLUMN grading_status VARCHAR(20) DEFAULT 'SUCCESS' NULL COMMENT '判题状态：PENDING/RUNNING/SUCCESS/FAILED',
+    ADD COLUMN grading_error VARCHAR(500) NULL COMMENT '判题失败原因',
+    ADD COLUMN model_name VARCHAR(100) NULL COMMENT '判题模型名称',
+    ADD COLUMN prompt_version VARCHAR(50) NULL COMMENT '判题提示词版本',
+    ADD COLUMN raw_response LONGTEXT NULL COMMENT '判题模型原始响应',
+    ADD COLUMN grading_started_at TIMESTAMP NULL COMMENT '判题开始时间',
+    ADD COLUMN grading_completed_at TIMESTAMP NULL COMMENT '判题完成时间';
+
+CREATE INDEX idx_student_answers_grading_status
+    ON aiteacher.student_answers (grading_status);
+
+-- 3) 判题任务表（第2周异步任务能力预留）
+CREATE TABLE IF NOT EXISTS aiteacher.grading_tasks
+(
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    answer_id       INT                                  NOT NULL COMMENT '关联student_answers.id',
+    status          VARCHAR(20)                          NOT NULL COMMENT '任务状态：PENDING/RUNNING/SUCCESS/FAILED',
+    retry_count     INT         DEFAULT 0                NOT NULL COMMENT '重试次数',
+    next_retry_at   TIMESTAMP                            NULL COMMENT '下次重试时间',
+    last_error      VARCHAR(500)                         NULL COMMENT '最后失败原因',
+    created_at      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP NULL,
+    updated_at      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+    completed_at    TIMESTAMP                            NULL,
+    CONSTRAINT fk_grading_task_answer
+        FOREIGN KEY (answer_id) REFERENCES aiteacher.student_answers (id)
+            ON DELETE CASCADE
+);
+
+CREATE INDEX idx_grading_tasks_status
+    ON aiteacher.grading_tasks (status);
+
+-- 第2周补充：异步判题模式下默认状态应为 PENDING
+ALTER TABLE aiteacher.student_answers
+    MODIFY COLUMN grading_status VARCHAR(20) DEFAULT 'PENDING' NULL COMMENT '判题状态：PENDING/RUNNING/SUCCESS/FAILED';
+
+-- 第3周补充：结构化判题结果
+ALTER TABLE aiteacher.student_answers
+    ADD COLUMN evaluation_json LONGTEXT NULL COMMENT '结构化判题结果(JSON)';
+
+

@@ -13,7 +13,7 @@ public interface StudentAssignmentMapper extends BaseMapper<StudentAssignmentDto
     
     @Select("SELECT sa.*, a.title, a.content, a.created_at as assignment_created_at, " +
             "c.course_name, t.teacher_name, " +
-            "ans.student_answer, ans.ai_score, ans.ai_analysis, ans.submitted_at " +
+            "ans.student_answer, ans.ai_score, ans.ai_analysis, ans.evaluation_json, ans.submitted_at, ans.grading_status, ans.grading_error " +
             "FROM student_assignments sa " +
             "INNER JOIN assignments a ON sa.assignment_id = a.id " +
             "INNER JOIN courses c ON a.course_code = c.course_code " +

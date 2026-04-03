@@ -61,6 +61,20 @@ const protectLatexFormulas = (text: string): string => {
     return registerInlineFormula(formula)
   })
 
+  // 处理双美元符号块级公式 $$...$$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula) => {
+    return registerFormula(formula, true)
+  })
+
+  // 处理单美元符号行内公式 $...$（避免误匹配货币符号）
+  text = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+    // 检查是否包含数学字符，避免误判
+    if (/[A-Za-z\\{}\^_=+\-*/()]/.test(formula)) {
+      return registerInlineFormula(formula)
+    }
+    return match
+  })
+
   text = autoWrapPlainMathExpressions(text, registerInlineFormula)
   
   // 保护填空题中的下划线（连续的下划线，通常2个或更多）
@@ -107,6 +121,8 @@ interface StudentAnswer {
   studentAnswer: string;
   aiScore: string;
   aiAnalysis: string;
+  gradingStatus?: string;
+  gradingError?: string;
   submittedAt: string;
 }
 
@@ -123,6 +139,8 @@ interface AssignmentWithStatus extends Assignment {
   studentAnswer?: string;
   aiScore?: string;
   aiAnalysis?: string;
+  gradingStatus?: string;
+  gradingError?: string;
   submittedAt?: string;
 }
 
@@ -160,7 +178,11 @@ function renderMarkdown(text: string): string {
   // 3. 渲染被保护的 LaTeX 公式
   const withLatex = renderProtectedLatex(html)
   // 4. 清理 HTML
-  return DOMPurify.sanitize(withLatex)
+  // 配置 DOMPurify 允许 KaTeX 生成的标签和属性
+  return DOMPurify.sanitize(withLatex, {
+    ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtext', 'annotation', 'munderover', 'mtable', 'mtr', 'mtd'],
+    ADD_ATTR: ['xmlns', 'aria-hidden', 'focusable']
+  })
 }
 
 // 获取课程的所有题目
@@ -202,6 +224,8 @@ function mergeAssignmentsWithAnswers() {
         studentAnswer: answer.studentAnswer,
         aiScore: answer.aiScore,
         aiAnalysis: answer.aiAnalysis,
+        gradingStatus: answer.gradingStatus,
+        gradingError: answer.gradingError,
         submittedAt: answer.submittedAt
       }
     } else {
@@ -408,7 +432,10 @@ onMounted(() => {
             <tr v-for="assignment in filteredAssignments" :key="assignment.id" :class="{ 'unanswered-row': !assignment.answered }">
               <td>{{ assignment.title }}</td>
               <td>
-                <span v-if="assignment.answered" class="status-badge status-answered">已答题</span>
+                <span v-if="assignment.answered && assignment.gradingStatus === 'SUCCESS'" class="status-badge status-answered">已完成</span>
+                <span v-else-if="assignment.answered && (assignment.gradingStatus === 'PENDING' || assignment.gradingStatus === 'RUNNING')" class="status-badge status-pending">批改中</span>
+                <span v-else-if="assignment.answered && assignment.gradingStatus === 'FAILED'" class="status-badge status-failed">批改失败</span>
+                <span v-else-if="assignment.answered" class="status-badge status-answered">已答题</span>
                 <span v-else class="status-badge status-unanswered">未答题</span>
               </td>
               <td>{{ assignment.answered ? assignment.aiScore : '-' }}</td>
@@ -614,6 +641,16 @@ td {
 .status-answered {
   background-color: #d4edda;
   color: #155724;
+}
+
+.status-pending {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+.status-failed {
+  background-color: #f8d7da;
+  color: #721c24;
 }
 
 .status-unanswered {

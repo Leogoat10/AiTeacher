@@ -29,6 +29,30 @@ public class StudentAnswerDto {
     @TableField("ai_analysis")
     private String aiAnalysis;
 
+    @TableField("grading_status")
+    private String gradingStatus;
+
+    @TableField("grading_error")
+    private String gradingError;
+
+    @TableField("model_name")
+    private String modelName;
+
+    @TableField("prompt_version")
+    private String promptVersion;
+
+    @TableField("raw_response")
+    private String rawResponse;
+
+    @TableField("evaluation_json")
+    private String evaluationJson;
+
+    @TableField("grading_started_at")
+    private LocalDateTime gradingStartedAt;
+
+    @TableField("grading_completed_at")
+    private LocalDateTime gradingCompletedAt;
+
     @TableField("submitted_at")
     private LocalDateTime submittedAt;
 }

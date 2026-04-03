@@ -21,7 +21,7 @@ public interface StudentAnswerMapper extends BaseMapper<StudentAnswerDto> {
     @Select("SELECT * FROM student_answers WHERE assignment_id = #{assignmentId} AND student_id = #{studentId}")
     StudentAnswerDto getByAssignmentAndStudent(Integer assignmentId, Integer studentId);
     
-    @Select("SELECT sa.id, sa.assignment_id, sa.student_id, sa.student_answer, sa.ai_score, sa.ai_analysis, sa.submitted_at, " +
+    @Select("SELECT sa.id, sa.assignment_id, sa.student_id, sa.student_answer, sa.ai_score, sa.ai_analysis, sa.evaluation_json, sa.grading_status, sa.grading_error, sa.submitted_at, " +
             "s.student_name, a.title as assignment_title, a.content as assignment_content " +
             "FROM student_answers sa " +
             "INNER JOIN students s ON sa.student_id = s.student_id " +
@@ -43,7 +43,7 @@ public interface StudentAnswerMapper extends BaseMapper<StudentAnswerDto> {
     List<Map<String, Object>> getCourseStudents(String courseCode);
     
     @Select("SELECT sa.id, sa.assignment_id as assignmentId, sa.student_answer as studentAnswer, " +
-            "sa.ai_score as aiScore, sa.ai_analysis as aiAnalysis, sa.submitted_at as submittedAt, " +
+            "sa.ai_score as aiScore, sa.ai_analysis as aiAnalysis, sa.evaluation_json as evaluationJson, sa.grading_status as gradingStatus, sa.grading_error as gradingError, sa.submitted_at as submittedAt, " +
             "a.title as assignmentTitle, a.content as assignmentContent " +
             "FROM student_answers sa " +
             "INNER JOIN assignments a ON sa.assignment_id = a.id " +
@@ -51,7 +51,7 @@ public interface StudentAnswerMapper extends BaseMapper<StudentAnswerDto> {
             "ORDER BY sa.submitted_at DESC")
     List<Map<String, Object>> getStudentAnswerHistory(Integer studentId, String courseCode);
     
-    @Select("SELECT sa.id, sa.assignment_id, sa.student_id, sa.student_answer, sa.ai_score, sa.ai_analysis, sa.submitted_at, " +
+    @Select("SELECT sa.id, sa.assignment_id, sa.student_id, sa.student_answer, sa.ai_score, sa.ai_analysis, sa.evaluation_json, sa.grading_status, sa.grading_error, sa.submitted_at, " +
             "s.student_name " +
             "FROM student_answers sa " +
             "INNER JOIN students s ON sa.student_id = s.student_id " +

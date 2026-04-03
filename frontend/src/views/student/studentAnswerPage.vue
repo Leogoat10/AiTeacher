@@ -61,12 +61,28 @@ const protectLatexFormulas = (text: string): string => {
   }
   const registerInlineFormula = (formula: string) => registerFormula(formula, false)
   
+  // 处理块级公式 \[...\]
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => {
     return registerFormula(formula, true)
   })
   
+  // 处理行内公式 \(...\)
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula) => {
     return registerInlineFormula(formula)
+  })
+
+  // 处理双美元符号块级公式 $$...$$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula) => {
+    return registerFormula(formula, true)
+  })
+
+  // 处理单美元符号行内公式 $...$（避免误匹配货币符号）
+  text = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+    // 检查是否包含数学字符，避免误判
+    if (/[A-Za-z\\{}\^_=+\-*/()]/.test(formula)) {
+      return registerInlineFormula(formula)
+    }
+    return match
   })
 
   text = autoWrapPlainMathExpressions(text, registerInlineFormula)
@@ -131,42 +147,43 @@ const renderMarkdown = (content: string): string => {
   const protectedText = protectLatexFormulas(content)
   const html = marked(protectedText) as string
   const withLatex = renderProtectedLatex(html)
-  return DOMPurify.sanitize(withLatex)
+  // 配置 DOMPurify 允许 KaTeX 生成的标签和属性
+  return DOMPurify.sanitize(withLatex, {
+    ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtext', 'annotation', 'munderover', 'mtable', 'mtr', 'mtd'],
+    ADD_ATTR: ['xmlns', 'aria-hidden', 'focusable']
+  })
 }
 
-// 分离题目内容和答案解析
-const splitContentAndAnswer = (content: string): { question: string, answer: string } => {
-  if (!content) return { question: '', answer: '' }
-  
-  const separators = [
-    '答案与解析',
-    '答案和解析', 
-    '参考答案',
-    '答案：',
-    '答案:',
-    '解析：',
-    '解析:',
-    '【答案】',
-    '【解析】'
-  ]
-  
-  let splitIndex = -1
-  
-  for (const sep of separators) {
-    const index = content.indexOf(sep)
-    if (index !== -1 && (splitIndex === -1 || index < splitIndex)) {
-      splitIndex = index
+const answerMarkerRegex = /答案与解析|答案和解析|参考答案|答案[：:]|解析[：:]|【答案】|【解析】/
+const questionStartRegex = /^\s*\d+[\.\)]\s+/
+
+// 提取仅题目部分，过滤每题的答案/解析段落，保留后续题目
+const extractQuestionContent = (content: string): string => {
+  if (!content) return ''
+
+  const normalized = content.replace(/\r\n/g, '\n')
+  const lines = normalized.split('\n')
+  const filtered: string[] = []
+  let inAnswerBlock = false
+
+  for (const line of lines) {
+    if (questionStartRegex.test(line)) {
+      inAnswerBlock = false
+      filtered.push(line)
+      continue
+    }
+
+    if (answerMarkerRegex.test(line)) {
+      inAnswerBlock = true
+      continue
+    }
+
+    if (!inAnswerBlock) {
+      filtered.push(line)
     }
   }
-  
-  if (splitIndex !== -1) {
-    return {
-      question: content.substring(0, splitIndex).trim(),
-      answer: content.substring(splitIndex).trim()
-    }
-  }
-  
-  return { question: content, answer: '' }
+
+  return filtered.join('\n').trim()
 }
 
 // 加载题目详情
@@ -238,14 +255,12 @@ const submitAnswer = async () => {
     })
 
     if (res.data.success) {
-      ElMessage.success('答案提交成功！')
+      ElMessage.success(res.data.message || '答案提交成功，AI正在批改')
       // 跳转到题目列表页
       router.push({
         path: '/studentAssignments',
         query: { 
-          submitted: 'true',
-          score: res.data.score,
-          analysis: res.data.analysis
+          submitted: 'true'
         }
       })
     } else {
@@ -272,7 +287,7 @@ const goBack = () => {
 // 计算题目内容
 const questionContent = computed(() => {
   if (!assignment.value) return ''
-  return splitContentAndAnswer(assignment.value.content).question
+  return extractQuestionContent(assignment.value.content)
 })
 
 onMounted(() => {
