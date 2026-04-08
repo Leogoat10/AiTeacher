@@ -1014,12 +1014,22 @@ const sendAssignmentToCourse = async () => {
   sendingAssignment.value = true
 
   try {
-    const payloadAssignments = selectedAIMessages.map((msg, idx) => ({
-      title: selectedAIMessages.length > 1
-        ? `${sendForm.value.title} (${idx + 1})`
-        : sendForm.value.title,
-      content: msg.rawContent || msg.content
-    }))
+    // 合并所有选中的题目内容为一个答题任务
+    const mergedContent = selectedAIMessages
+      .map((msg, idx) => {
+        const content = msg.rawContent || msg.content
+        // 如果有多条消息，为每条消息添加序号标识
+        if (selectedAIMessages.length > 1) {
+          return `### 第${idx + 1}部分\n\n${content}`
+        }
+        return content
+      })
+      .join('\n\n---\n\n')
+
+    const payloadAssignments = [{
+      title: sendForm.value.title,
+      content: mergedContent
+    }]
 
     const res = await apiClient.post('/assignment/sendBatchToCourse', {
       courseCode: sendForm.value.courseCode,
@@ -1031,11 +1041,13 @@ const sendAssignmentToCourse = async () => {
     const totalStudents = res.data?.studentCount || 0
 
     if (successCount > 0) {
-      ElMessage.success(`批次发送完成：成功 ${successCount} 个，失败 ${failCount} 个，覆盖 ${totalStudents} 名学生`)
+      const messageCount = selectedAIMessages.length
+      const messageText = messageCount > 1 ? `${messageCount}轮题目已合并，` : ''
+      ElMessage.success(`${messageText}发送成功！已发送至 ${totalStudents} 名学生`)
       showSendDialog.value = false
       selectedMessages.value.clear()
     } else {
-      ElMessage.warning(`批次发送失败：${res.data?.message || '未知错误'}`)
+      ElMessage.warning(`发送失败：${res.data?.message || '未知错误'}`)
     }
 
   } catch (err: any) {
