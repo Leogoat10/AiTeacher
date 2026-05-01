@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leo.aiteacher.client.DeepSeekChatClient;
 import com.leo.aiteacher.pojo.dto.ConversationDto;
+import com.leo.aiteacher.pojo.dto.GenerationTaskDto;
 import com.leo.aiteacher.pojo.dto.LessonPlanDto;
 import com.leo.aiteacher.pojo.dto.LessonPlanTaskDto;
 import com.leo.aiteacher.pojo.dto.TeacherDto;
 import com.leo.aiteacher.pojo.mapper.ConversationMapper;
+import com.leo.aiteacher.pojo.mapper.GenerationTaskMapper;
 import com.leo.aiteacher.pojo.mapper.LessonPlanMapper;
 import com.leo.aiteacher.pojo.mapper.LessonPlanTaskMapper;
 import com.leo.aiteacher.service.LessonPlanService;
@@ -49,6 +51,9 @@ public class LessonPlanServiceImpl implements LessonPlanService {
     private Executor lessonPlanExecutor;
 
     @Resource
+    private GenerationTaskMapper generationTaskMapper;
+
+    @Resource
     private DeepSeekChatClient deepSeekChatClient;
 
     @Resource
@@ -71,6 +76,12 @@ public class LessonPlanServiceImpl implements LessonPlanService {
 
         List<ConversationDto> existingConversations = conversationMapper.getConversationsByTeacherId(teacher.getTeacherId());
         for (ConversationDto conversation : existingConversations) {
+            if (!"教案会话".equals(conversation.getTitle())) {
+                continue;
+            }
+            if (hasQuestionHistory(teacher.getTeacherId(), conversation.getId())) {
+                continue;
+            }
             Long count = lessonPlanTaskMapper.selectCount(
                     new QueryWrapper<LessonPlanTaskDto>().eq("conversation_id", conversation.getId())
             );
@@ -114,6 +125,9 @@ public class LessonPlanServiceImpl implements LessonPlanService {
             if (conversationId == null || conversationMap.containsKey(conversationId)) {
                 continue;
             }
+            if (hasQuestionHistory(teacher.getTeacherId(), conversationId)) {
+                continue;
+            }
             ConversationDto conversation = conversationMapper.getConversationById(conversationId);
             if (conversation == null || !conversation.getTeacherId().equals(teacher.getTeacherId())) {
                 continue;
@@ -153,6 +167,12 @@ public class LessonPlanServiceImpl implements LessonPlanService {
             result.put("success", false);
             result.put("error", "无权限访问该对话");
             result.put("status", HttpStatus.FORBIDDEN.value());
+            return result;
+        }
+        if (hasQuestionHistory(teacher.getTeacherId(), conversationId)) {
+            result.put("success", false);
+            result.put("error", "该会话属于出题历史，请在教案模块选择教案历史会话");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
             return result;
         }
 
@@ -223,7 +243,7 @@ public class LessonPlanServiceImpl implements LessonPlanService {
         if (actualConversationId == null) {
             ConversationDto conversation = new ConversationDto();
             conversation.setTeacherId(teacher.getTeacherId());
-            conversation.setTitle("请发送消息");
+            conversation.setTitle("教案会话");
             conversationMapper.insertConversation(conversation);
             actualConversationId = conversation.getId();
             isNewConversation = true;
@@ -233,6 +253,12 @@ public class LessonPlanServiceImpl implements LessonPlanService {
                 result.put("success", false);
                 result.put("error", "无权限访问该对话");
                 result.put("status", HttpStatus.FORBIDDEN.value());
+                return result;
+            }
+            if (hasQuestionHistory(teacher.getTeacherId(), actualConversationId)) {
+                result.put("success", false);
+                result.put("error", "该会话属于出题历史，请在教案模块选择教案历史会话");
+                result.put("status", HttpStatus.BAD_REQUEST.value());
                 return result;
             }
             existingConversation = conversation;
@@ -561,7 +587,10 @@ public class LessonPlanServiceImpl implements LessonPlanService {
             return false;
         }
         String title = conversation.getTitle();
-        return title == null || title.isBlank() || "请发送消息".equals(title.trim());
+        return title == null
+                || title.isBlank()
+                || "请发送消息".equals(title.trim())
+                || "教案会话".equals(title.trim());
     }
 
     private LessonPlanTaskDto findLatestTask(Integer teacherId, Integer conversationId) {
@@ -572,6 +601,15 @@ public class LessonPlanServiceImpl implements LessonPlanService {
                         .orderByDesc("id")
                         .last("LIMIT 1")
         );
+    }
+
+    private boolean hasQuestionHistory(Integer teacherId, Integer conversationId) {
+        Long generationCount = generationTaskMapper.selectCount(
+                new QueryWrapper<GenerationTaskDto>()
+                        .eq("teacher_id", teacherId)
+                        .eq("conversation_id", conversationId)
+        );
+        return generationCount != null && generationCount > 0;
     }
 
     private int normalizeContextRounds(Integer contextRounds) {

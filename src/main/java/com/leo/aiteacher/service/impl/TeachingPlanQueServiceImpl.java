@@ -1,9 +1,14 @@
 package com.leo.aiteacher.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.leo.aiteacher.pojo.dto.ConversationDto;
+import com.leo.aiteacher.pojo.dto.GenerationTaskDto;
+import com.leo.aiteacher.pojo.dto.LessonPlanTaskDto;
 import com.leo.aiteacher.pojo.dto.MessageDto;
 import com.leo.aiteacher.pojo.dto.TeacherDto;
 import com.leo.aiteacher.pojo.mapper.ConversationMapper;
+import com.leo.aiteacher.pojo.mapper.GenerationTaskMapper;
+import com.leo.aiteacher.pojo.mapper.LessonPlanTaskMapper;
 import com.leo.aiteacher.pojo.mapper.MessageMapper;
 import com.leo.aiteacher.service.TeachingPlanQueService;
 import com.leo.aiteacher.util.SessionUtils;
@@ -28,6 +33,12 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
     @Resource
     private ConversationMapper conversationMapper;
 
+    @Resource
+    private GenerationTaskMapper generationTaskMapper;
+
+    @Resource
+    private LessonPlanTaskMapper lessonPlanTaskMapper;
+
     @Override
     public Map<String, Object> createConversation() {
         try {
@@ -41,7 +52,7 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
 
             List<ConversationDto> existingConversations = conversationMapper.getConversationsByTeacherId(teacher.getTeacherId());
             ConversationDto unusedConversation = existingConversations.stream()
-                    .filter(conversation -> "请发送消息".equals(conversation.getTitle()))
+                    .filter(conversation -> "出题会话".equals(conversation.getTitle()))
                     .filter(conversation -> {
                         Integer messageCount = messageMapper.countByConversationId(conversation.getId());
                         return messageCount == null || messageCount == 0;
@@ -58,7 +69,7 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
 
             ConversationDto conversation = new ConversationDto();
             conversation.setTeacherId(teacher.getTeacherId());
-            conversation.setTitle("请发送消息");
+            conversation.setTitle("出题会话");
             conversationMapper.insertConversation(conversation);
 
             Map<String, Object> result = new HashMap<>();
@@ -83,15 +94,31 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
                 throw new RuntimeException("未登录");
             }
 
-            List<ConversationDto> conversations = conversationMapper.getConversationsByTeacherIdWithLatestMessage(teacher.getTeacherId());
-
-            return conversations.stream().map(conversation -> {
+            List<GenerationTaskDto> tasks = generationTaskMapper.selectList(
+                    new QueryWrapper<GenerationTaskDto>()
+                            .eq("teacher_id", teacher.getTeacherId())
+                            .orderByDesc("id")
+            );
+            java.util.LinkedHashMap<Integer, Map<String, Object>> conversationMap = new java.util.LinkedHashMap<>();
+            for (GenerationTaskDto task : tasks) {
+                Integer conversationId = task.getConversationId();
+                if (conversationId == null || conversationMap.containsKey(conversationId)) {
+                    continue;
+                }
+                if (hasLessonHistory(teacher.getTeacherId(), conversationId)) {
+                    continue;
+                }
+                ConversationDto conversation = conversationMapper.getConversationById(conversationId);
+                if (conversation == null || !conversation.getTeacherId().equals(teacher.getTeacherId())) {
+                    continue;
+                }
                 Map<String, Object> map = new HashMap<>();
                 map.put("id", conversation.getId());
-                map.put("createTime", conversation.getLatestMessageUpdatedAt());
+                map.put("createTime", task.getUpdatedAt() != null ? task.getUpdatedAt() : task.getCreatedAt());
                 map.put("title", conversation.getTitle());
-                return map;
-            }).toList();
+                conversationMap.put(conversationId, map);
+            }
+            return new java.util.ArrayList<>(conversationMap.values());
         } catch (Exception e) {
             logger.error("获取用户对话列表失败: ", e);
             throw new RuntimeException("获取对话列表失败: " + e.getMessage());
@@ -124,6 +151,20 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
                 errorResponse.put("success", false);
                 errorResponse.put("error", "无权限访问该对话");
                 errorResponse.put("status", HttpStatus.FORBIDDEN.value());
+                return errorResponse;
+            }
+            if (!hasGenerationHistory(teacher.getTeacherId(), conversationId)) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("error", "该对话不属于出题历史");
+                errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+                return errorResponse;
+            }
+            if (hasLessonHistory(teacher.getTeacherId(), conversationId)) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("error", "该会话已混入教案历史，请新建出题会话");
+                errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
                 return errorResponse;
             }
 
@@ -188,6 +229,20 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
                 errorResponse.put("status", HttpStatus.FORBIDDEN.value());
                 return errorResponse;
             }
+            if (!hasGenerationHistory(teacher.getTeacherId(), conversationId)) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("error", "该对话不属于出题历史");
+                errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+                return errorResponse;
+            }
+            if (hasLessonHistory(teacher.getTeacherId(), conversationId)) {
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("error", "该会话已混入教案历史，请在对应模块单独处理");
+                errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+                return errorResponse;
+            }
 
             conversationMapper.deleteConversationById(conversationId);
 
@@ -202,5 +257,23 @@ public class TeachingPlanQueServiceImpl implements TeachingPlanQueService {
             errorResponse.put("message", e.getMessage());
             return errorResponse;
         }
+    }
+
+    private boolean hasGenerationHistory(Integer teacherId, Integer conversationId) {
+        Long generationTaskCount = generationTaskMapper.selectCount(
+                new QueryWrapper<GenerationTaskDto>()
+                        .eq("teacher_id", teacherId)
+                        .eq("conversation_id", conversationId)
+        );
+        return generationTaskCount != null && generationTaskCount > 0;
+    }
+
+    private boolean hasLessonHistory(Integer teacherId, Integer conversationId) {
+        Long lessonTaskCount = lessonPlanTaskMapper.selectCount(
+                new QueryWrapper<LessonPlanTaskDto>()
+                        .eq("teacher_id", teacherId)
+                        .eq("conversation_id", conversationId)
+        );
+        return lessonTaskCount != null && lessonTaskCount > 0;
     }
 }

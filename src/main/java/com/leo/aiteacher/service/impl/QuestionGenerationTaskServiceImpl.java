@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.leo.aiteacher.pojo.dto.ConversationDto;
 import com.leo.aiteacher.pojo.dto.GenerationTaskDto;
+import com.leo.aiteacher.pojo.dto.LessonPlanTaskDto;
 import com.leo.aiteacher.pojo.dto.MessageDto;
 import com.leo.aiteacher.pojo.dto.TeacherDto;
 import com.leo.aiteacher.pojo.mapper.ConversationMapper;
 import com.leo.aiteacher.pojo.mapper.GenerationTaskMapper;
+import com.leo.aiteacher.pojo.mapper.LessonPlanTaskMapper;
 import com.leo.aiteacher.pojo.mapper.MessageMapper;
 import com.leo.aiteacher.service.QuestionGenerationTaskService;
 import com.leo.aiteacher.util.SessionUtils;
@@ -50,6 +52,9 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
     private MessageMapper messageMapper;
 
     @Resource
+    private LessonPlanTaskMapper lessonPlanTaskMapper;
+
+    @Resource
     @Qualifier("questionGenerationExecutor")
     private Executor questionGenerationExecutor;
 
@@ -86,7 +91,7 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
         if (actualConversationId == null) {
             ConversationDto newConversation = new ConversationDto();
             newConversation.setTeacherId(teacher.getTeacherId());
-            newConversation.setTitle("请发送消息");
+            newConversation.setTitle("出题会话");
             conversationMapper.insertConversation(newConversation);
             actualConversationId = newConversation.getId();
             isNewConversation = true;
@@ -96,6 +101,12 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
                 result.put("success", false);
                 result.put("error", "无权限访问该对话");
                 result.put("status", HttpStatus.FORBIDDEN.value());
+                return result;
+            }
+            if (hasLessonHistory(teacher.getTeacherId(), actualConversationId)) {
+                result.put("success", false);
+                result.put("error", "该会话属于教案历史，请在出题模块选择出题历史会话");
+                result.put("status", HttpStatus.BAD_REQUEST.value());
                 return result;
             }
             existingConversation = conversation;
@@ -191,7 +202,8 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
         String currentTitle = conversation.getTitle();
         return currentTitle == null
                 || currentTitle.isBlank()
-                || "请发送消息".equals(currentTitle.trim());
+                || "请发送消息".equals(currentTitle.trim())
+                || "出题会话".equals(currentTitle.trim());
     }
 
     private GenerationTaskDto findLatestTask(Integer teacherId, Integer conversationId) {
@@ -202,6 +214,15 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
                         .orderByDesc("id")
                         .last("LIMIT 1")
         );
+    }
+
+    private boolean hasLessonHistory(Integer teacherId, Integer conversationId) {
+        Long lessonCount = lessonPlanTaskMapper.selectCount(
+                new QueryWrapper<LessonPlanTaskDto>()
+                        .eq("teacher_id", teacherId)
+                        .eq("conversation_id", conversationId)
+        );
+        return lessonCount != null && lessonCount > 0L;
     }
 
     @Override
