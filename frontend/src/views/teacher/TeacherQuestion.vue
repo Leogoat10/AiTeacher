@@ -1452,120 +1452,147 @@ const sendAssignmentToCourse = async () => {
 
 <style scoped>
 .ai-teacher-container {
-max-width: 1400px;
-margin: 20px auto;
-font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
-height: calc(100vh - 40px);
-display: flex;
-flex-direction: column;
-position: relative; /* 为右上角按钮定位提供容器 */
+  width: 100%;
+  min-height: calc(100vh - 120px);
+  margin: 0;
+  padding: 0;
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 .header {
-text-align: center;
-margin-bottom: 20px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f6fb 100%);
+  border: 1px solid #e8eef8;
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
 }
 
 .header h1 {
-color: #409EFF;
-margin-bottom: 8px;
+  color: #0f172a;
+  margin: 0 0 6px 0;
+  font-size: 22px;
 }
 
 .header p {
-color: #666;
-margin-bottom: 10px;
+  color: #64748b;
+  margin: 0;
 }
 
 .header-buttons {
-display: flex;
-gap: 10px;
-justify-content: center;
-margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 .main-container {
-display: flex;
-flex: 1;
-gap: 20px;
-height: 0;
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 14px;
+  align-items: stretch;
 }
 
 .form-container {
-width: 350px;
-overflow: auto;
-padding: 20px;
-border: 1px solid #eaeaea;
-border-radius: 8px;
-background: #fafafa;
-display: flex;
-flex-direction: column;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid #e8eef8;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
 .form-title {
-font-size: 18px;
-font-weight: bold;
-color: #333;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .chat-container {
-flex: 1;
-overflow-y: auto;
-padding: 10px;
-border: 1px solid #eaeaea;
-border-radius: 8px;
-background: #fafafa;
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid #e8eef8;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  min-height: 680px;
 }
 
 .message {
-margin-bottom: 16px;
+  margin-bottom: 14px;
+  max-width: 92%;
+}
+
+.message.user {
+  margin-left: auto;
 }
 
 .message-header {
-display: flex;
-justify-content: space-between;
-align-items: center;
-margin-bottom: 4px;
-font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #334155;
 }
 
 .message-actions {
-display: flex;
-align-items: center;
-gap: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .timestamp {
-color: #999;
-font-size: 12px;
+  color: #9aa7b9;
+  font-size: 12px;
 }
 
 .message-content {
-border: none;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.message-content.user {
+  background: #eef6ff;
+  border-color: #dbeafe;
+}
+
+.message-content.ai {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+.message-content :deep(.el-card__body) {
+  padding: 12px 14px;
 }
 
 .message-content pre {
-white-space: pre-wrap;
-word-wrap: break-word;
-margin: 0;
-font-family: inherit;
-line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0;
+  font-family: inherit;
+  line-height: 1.75;
+  color: #1e293b;
 }
 
 .loading {
-text-align: center;
-padding: 20px;
-color: #666;
+  text-align: center;
+  padding: 20px;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px dashed #d7e0ec;
 }
 
 .task-status {
   margin-top: 8px;
   font-size: 12px;
-  color: #909399;
+  color: #64748b;
 }
 
 .task-panel {
-  background: #ffffff;
-  border: 1px solid #e4e7ed;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 10px;
   padding: 12px;
   margin-bottom: 12px;
@@ -1581,12 +1608,12 @@ color: #666;
 .task-panel-text {
   margin-top: 8px;
   font-size: 12px;
-  color: #606266;
+  color: #475569;
 }
 
 .task-context-text {
   margin-top: 6px;
-  color: #909399;
+  color: #64748b;
 }
 
 .task-panel-actions {
@@ -1596,7 +1623,7 @@ color: #666;
 .question-cards {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .context-settings {
@@ -1608,22 +1635,30 @@ color: #666;
 }
 
 .context-settings-tip {
-  margin-top: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
   font-size: 12px;
-  color: #909399;
+  color: #7c8ba1;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px dashed #d3dce6;
 }
 
 .context-hint {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   font-size: 12px;
   color: #409eff;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 6px 10px;
 }
 
 .question-card {
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #fcfcfd;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #ffffff;
 }
 
 .question-card-title {
@@ -1636,7 +1671,7 @@ color: #666;
 .question-part-title {
   font-size: 12px;
   font-weight: 600;
-  color: #909399;
+  color: #64748b;
   margin-bottom: 6px;
 }
 
@@ -1651,21 +1686,22 @@ color: #666;
 
 .question-card-stem {
   font-weight: 500;
-  color: #303133;
+  color: #1e293b;
   margin-bottom: 8px;
-  line-height: 1.6;
+  line-height: 1.75;
 }
 
 .question-card-options {
-  background: #f7f8fa;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 8px;
   margin-bottom: 8px;
-  line-height: 1.6;
+  line-height: 1.75;
 }
 
 .question-split-line {
-  border-top: 1px dashed #dcdfe6;
+  border-top: 1px dashed #cbd5e1;
   margin: 10px 0 8px;
 }
 
@@ -1676,12 +1712,12 @@ color: #666;
 }
 
 .question-card-analysis {
-  color: #606266;
-  line-height: 1.6;
+  color: #475569;
+  line-height: 1.75;
 }
 
 .quality-issues {
-  border-top: 1px dashed #dcdfe6;
+  border-top: 1px dashed #cbd5e1;
   padding-top: 8px;
 }
 
@@ -1695,25 +1731,15 @@ color: #666;
 .quality-issue-item {
   color: #e6a23c;
   font-size: 12px;
-  line-height: 1.6;
-}
-
-@media (max-width: 768px) {
-.main-container {
-flex-direction: column;
-}
-
-.form-container {
-width: 100%;
-}
+  line-height: 1.75;
 }
 
 .history-dialog-content {
-min-height: 100px;
+  min-height: 100px;
 }
 
 .history-list {
-margin-top: 10px;
+  margin-top: 10px;
 }
 
 .history-item {
@@ -1724,13 +1750,13 @@ margin-top: 10px;
   margin-bottom: 10px;
   cursor: pointer;
   transition: all 0.3s;
-  border: 1px solid #ebeef5;
+  border: 1px solid #e2e8f0;
   justify-content: space-between;
 }
 
 .history-item:hover {
-  background-color: #f5f7fa;
-  border-color: #c6e2ff;
+  background-color: #f8fbff;
+  border-color: #93c5fd;
 }
 
 .history-item.active {
@@ -1761,7 +1787,7 @@ margin-top: 10px;
 
 .history-id {
   font-weight: 500;
-  color: #303133;
+  color: #1e293b;
   margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
@@ -1770,7 +1796,7 @@ margin-top: 10px;
 
 .history-time {
   font-size: 12px;
-  color: #909399;
+  color: #94a3b8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1789,6 +1815,22 @@ margin-top: 10px;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+@media (max-width: 1180px) {
+  .main-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-buttons {
+    justify-content: flex-start;
+  }
+
+  .message {
+    max-width: 100%;
+  }
 }
 </style>
 

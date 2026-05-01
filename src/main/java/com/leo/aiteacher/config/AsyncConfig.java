@@ -32,4 +32,15 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "lessonPlanExecutor")
+    public Executor lessonPlanExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(3);
+        executor.setMaxPoolSize(6);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("lesson-plan-");
+        executor.initialize();
+        return executor;
+    }
 }
