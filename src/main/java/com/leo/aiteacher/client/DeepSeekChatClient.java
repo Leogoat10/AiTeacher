@@ -31,7 +31,7 @@ public class DeepSeekChatClient {
     @Value("${deepseek.api.key}")
     private String apiKey;
 
-    @Value("${deepseek.api.model:deepseek-chat}")
+    @Value("${deepseek.api.model:deepseek-v4-flash}")
     private String modelName;
 
     @Value("${deepseek.api.retry.max-attempts:3}")
@@ -97,7 +97,7 @@ public class DeepSeekChatClient {
         )));
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-        ResponseEntity<String> response = restTemplate.exchange(apiUrl, HttpMethod.POST, entity, String.class);
+        ResponseEntity<String> response = restTemplate.exchange(resolveChatCompletionsUrl(apiUrl), HttpMethod.POST, entity, String.class);
 
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new RuntimeException("DeepSeek响应异常: " + response.getStatusCode());
@@ -107,4 +107,15 @@ public class DeepSeekChatClient {
     }
 
     public record ChatResult(String content, String rawResponse, String modelName, long latencyMs, int attempt) {}
+
+    private String resolveChatCompletionsUrl(String configuredUrl) {
+        String normalized = configuredUrl == null ? "" : configuredUrl.trim();
+        if (normalized.endsWith("/chat/completions") || normalized.endsWith("/v1/chat/completions")) {
+            return normalized;
+        }
+        if (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized + "/chat/completions";
+    }
 }

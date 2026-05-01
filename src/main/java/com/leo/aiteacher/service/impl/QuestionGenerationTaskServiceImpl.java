@@ -37,6 +37,9 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
     @Value("${deepseek.api.key}")
     private String apiKey;
 
+    @Value("${deepseek.api.model:deepseek-v4-flash}")
+    private String modelName;
+
     @Resource
     private GenerationTaskMapper generationTaskMapper;
 
@@ -327,13 +330,13 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
         ));
 
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", "deepseek-chat");
+        requestBody.put("model", modelName);
         requestBody.put("messages", messages);
         requestBody.put("temperature", 0.3);
 
         RestTemplate restTemplate = new RestTemplate();
         ResponseEntity<String> response = restTemplate.exchange(
-                deepSeekApiUrl,
+                resolveChatCompletionsUrl(deepSeekApiUrl),
                 HttpMethod.POST,
                 new HttpEntity<>(requestBody, headers),
                 String.class
@@ -368,6 +371,17 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
             throw new RuntimeException("模型返回格式不符合要求，缺少 questions 数组");
         }
         return node;
+    }
+
+    private String resolveChatCompletionsUrl(String configuredUrl) {
+        String normalized = configuredUrl == null ? "" : configuredUrl.trim();
+        if (normalized.endsWith("/chat/completions") || normalized.endsWith("/v1/chat/completions")) {
+            return normalized;
+        }
+        if (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized + "/chat/completions";
     }
 
     private List<Map<String, Object>> qualityCheck(JsonNode node) {

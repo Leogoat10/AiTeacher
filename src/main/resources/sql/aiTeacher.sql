@@ -1,6 +1,3 @@
-create database aiTeacher;
-       use aiTeacher;
-
 create table aiteacher.teachers
 (
     id           int auto_increment
