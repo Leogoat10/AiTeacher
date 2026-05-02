@@ -13,6 +13,7 @@ import StudentAssignmentDetail from "../views/student/studentAssignmentDetail.vu
 import AnswerManagement from "../views/teacher/answerManagement.vue";
 import StudentAnswerHistory from "../views/teacher/studentAnswerHistory.vue";
 import TeacherViewAnswerDetail from "../views/teacher/teacherViewAnswerDetail.vue";
+import LearningAnalysis from "../views/teacher/learningAnalysis.vue";
 
 
 const routes = [
@@ -50,6 +51,11 @@ const routes = [
         path: '/answerManagement',
         name: 'answerManagement',
         component: AnswerManagement
+    },
+    {
+        path: '/learningAnalysis',
+        name: 'learningAnalysis',
+        component: LearningAnalysis
     },
     {
         path: '/studentAnswerHistory/:studentId/:courseCode',

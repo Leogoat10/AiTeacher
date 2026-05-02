@@ -340,3 +340,122 @@ CALL sp_add_index_if_missing('lesson_plan_tasks', 'idx_lesson_plan_tasks_convers
 DROP PROCEDURE IF EXISTS sp_add_col_if_missing;
 DROP PROCEDURE IF EXISTS sp_add_index_if_missing;
 
+-- ============================================
+-- 6) 学情分析日志（W5）
+-- ============================================
+CREATE TABLE IF NOT EXISTS learning_analysis_logs (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id          INT                                  NOT NULL COMMENT '教师ID',
+    course_code         VARCHAR(50)                          NOT NULL COMMENT '课程代码',
+    assignment_id       INT                                  NULL COMMENT '作业ID(为空表示课程整体分析)',
+    total_students      INT                                  NOT NULL COMMENT '纳入分析学生数',
+    total_answers       INT                                  NOT NULL COMMENT '纳入分析答题数',
+    avg_score           DECIMAL(6,2)                         NOT NULL COMMENT '课程平均分',
+    mastery_level       VARCHAR(20)                          NOT NULL COMMENT '总体掌握层级',
+    mastery_rate        DECIMAL(6,2)                         NOT NULL COMMENT '达标率(%)',
+    risk_student_count  INT                                  NOT NULL COMMENT '风险学生数',
+    knowledge_points_json LONGTEXT                           NULL COMMENT '薄弱知识点快照(JSON)',
+    student_snapshot_json LONGTEXT                           NULL COMMENT '学生画像快照(JSON)',
+    analysis_summary    TEXT                                 NULL COMMENT '分析摘要',
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL,
+    KEY idx_learning_analysis_teacher_course (teacher_id, course_code),
+    KEY idx_learning_analysis_assignment (assignment_id),
+    KEY idx_learning_analysis_created_at (created_at),
+    CONSTRAINT fk_learning_analysis_teacher
+        FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id)
+            ON DELETE CASCADE,
+    CONSTRAINT fk_learning_analysis_assignment
+        FOREIGN KEY (assignment_id) REFERENCES assignments (id)
+            ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 兼容已存在的 learning_analysis_logs（旧结构无 assignment_id）
+SET @lal_col_exists = (
+    SELECT COUNT(1)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'learning_analysis_logs'
+      AND COLUMN_NAME = 'assignment_id'
+);
+SET @lal_add_col_sql = IF(
+    @lal_col_exists = 0,
+    'ALTER TABLE `learning_analysis_logs` ADD COLUMN `assignment_id` INT NULL COMMENT ''作业ID(为空表示课程整体分析)'' AFTER `course_code`',
+    'SELECT 1'
+);
+PREPARE stmt FROM @lal_add_col_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @lal_idx_exists = (
+    SELECT COUNT(1)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'learning_analysis_logs'
+      AND INDEX_NAME = 'idx_learning_analysis_assignment'
+);
+SET @lal_add_idx_sql = IF(
+    @lal_idx_exists = 0,
+    'ALTER TABLE `learning_analysis_logs` ADD INDEX idx_learning_analysis_assignment (`assignment_id`)',
+    'SELECT 1'
+);
+PREPARE stmt FROM @lal_add_idx_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- ============================================
+-- 7) 学生-作业学情分析快照（覆盖式）
+-- ============================================
+CREATE TABLE IF NOT EXISTS student_assignment_analyses (
+    id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id         INT                                  NOT NULL COMMENT '教师ID',
+    course_code        VARCHAR(50)                          NOT NULL COMMENT '课程代码',
+    assignment_id      INT                                  NOT NULL COMMENT '作业ID',
+    student_id         INT                                  NOT NULL COMMENT '学生ID',
+    answer_count       INT                                  NOT NULL COMMENT '该次分析纳入答题数',
+    avg_score          DECIMAL(6,2)                         NOT NULL COMMENT '平均分',
+    preparedness_score DECIMAL(6,2)                         NOT NULL COMMENT '预备知识评分',
+    mastery_level      VARCHAR(20)                          NOT NULL COMMENT '掌握层级',
+    recommendation     VARCHAR(500)                         NULL COMMENT '学习建议',
+    analysis_json      LONGTEXT                             NULL COMMENT '学生画像JSON',
+    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL,
+    updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_student_assignment_analysis (assignment_id, student_id),
+    KEY idx_saa_teacher_course_assignment (teacher_id, course_code, assignment_id),
+    CONSTRAINT fk_saa_teacher
+        FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id)
+            ON DELETE CASCADE,
+    CONSTRAINT fk_saa_assignment
+        FOREIGN KEY (assignment_id) REFERENCES assignments (id)
+            ON DELETE CASCADE,
+    CONSTRAINT fk_saa_student
+        FOREIGN KEY (student_id) REFERENCES students (student_id)
+            ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- 8) 作业学情分析快照（覆盖式）
+-- ============================================
+CREATE TABLE IF NOT EXISTS assignment_analysis_snapshots (
+    id                     BIGINT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id             INT                                  NOT NULL COMMENT '教师ID',
+    course_code            VARCHAR(50)                          NOT NULL COMMENT '课程代码',
+    assignment_id          INT                                  NOT NULL COMMENT '作业ID',
+    assignment_title       VARCHAR(255)                         NOT NULL COMMENT '作业标题',
+    overview_json          LONGTEXT                             NULL COMMENT '总览指标JSON',
+    distribution_json      LONGTEXT                             NULL COMMENT '分层统计JSON',
+    trend_json             LONGTEXT                             NULL COMMENT '趋势数据JSON',
+    weak_points_json       LONGTEXT                             NULL COMMENT '薄弱知识点JSON',
+    student_profiles_json  LONGTEXT                             NULL COMMENT '学生画像JSON',
+    ai_recommendation_json LONGTEXT                             NULL COMMENT 'AI建议JSON',
+    summary                TEXT                                 NULL COMMENT '分析摘要',
+    created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL,
+    updated_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_assignment_analysis_snapshot (teacher_id, course_code, assignment_id),
+    KEY idx_assignment_analysis_assignment (assignment_id),
+    CONSTRAINT fk_aas_teacher
+        FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id)
+            ON DELETE CASCADE,
+    CONSTRAINT fk_aas_assignment
+        FOREIGN KEY (assignment_id) REFERENCES assignments (id)
+            ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
