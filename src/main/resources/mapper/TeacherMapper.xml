@@ -16,4 +16,10 @@
         VALUES (#{teacherId}, #{teacherName}, #{password})
     </insert>
 
+    <update id="updateTeacherPassword">
+        UPDATE teachers
+        SET password = #{newPassword}
+        WHERE teacher_id = #{teacherId}
+    </update>
+
 </mapper>

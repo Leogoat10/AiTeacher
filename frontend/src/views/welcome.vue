@@ -3,7 +3,7 @@
     <div class="main-container">
       <div class="logo">
         <div class="logo-icon-wrapper">
-          <i class="fas fa-gem logo-icon"></i>
+          <i class="fas fa-brain logo-icon"></i>
         </div>
       </div>
 
@@ -21,10 +21,10 @@
             <div class="role-icon-wrapper">
               <i class="fas fa-user-graduate role-icon text-primary"></i>
             </div>
-            <h5 class="card-title"><i class="fas fa-user-graduate title-icon"></i> 学生</h5>
+            <h5 class="card-title"><i class="fas fa-graduation-cap title-icon"></i> 学生</h5>
             <p class="card-text">进入学生登录页面</p>
             <el-button type="primary" class="btn-role btn-student" @click="navigateTo('/studentLogin')">
-              进入
+              进入 <i class="fas fa-arrow-right"></i>
             </el-button>
           </div>
         </div>
@@ -32,12 +32,12 @@
         <div class="card role-card teacher-card">
           <div class="card-body text-center">
             <div class="role-icon-wrapper">
-              <i class="fas fa-chalkboard-teacher role-icon text-success"></i>
+              <i class="fas fa-chalkboard-user role-icon text-success"></i>
             </div>
-            <h5 class="card-title"><i class="fas fa-chalkboard-teacher title-icon"></i> 教师</h5>
+            <h5 class="card-title"><i class="fas fa-chalkboard title-icon"></i> 教师</h5>
             <p class="card-text">进入教师登录页面</p>
             <el-button type="success" class="btn-role btn-teacher" @click="navigateTo('/teacherLogin')">
-              进入
+              进入 <i class="fas fa-arrow-right"></i>
             </el-button>
           </div>
         </div>
@@ -65,21 +65,36 @@ const navigateTo = (path: string) => {
   --muted: #f4f7fb;
 }
 
-/* 页面整体背景装饰 */
+/* 页面整体背景 - 新增科技感AI主题背景图 */
 .welcome-page {
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: linear-gradient(135deg, rgba(15, 25, 45, 0.7), rgba(30, 45, 70, 0.65)),
+  url('https://images.pexels.com/photos/8386440/pexels-photo-8386440.jpeg?auto=compress&cs=tinysrgb&w=1600&h=900&fit=crop');
+  background-size: cover;
+  background-position: center 30%;
+  background-attachment: fixed;
   min-height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  position: relative;
 }
 
-/* 容器与点状装饰 */
+/* 可选：叠加微妙的网格线，增强科技感 */
+.welcome-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, rgba(255,255,240,0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+}
+
+/* 容器增强毛玻璃质感，提升可读性 */
 .main-container {
   background-color: rgba(255, 255, 255, 0.95);
-  border-radius: 15px;
-  box-shadow: 0 12px 40px rgba(30, 40, 50, 0.12);
+  border-radius: 32px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255,255,255,0.3);
   overflow: hidden;
   max-width: 900px;
   width: 90%;
@@ -112,7 +127,7 @@ const navigateTo = (path: string) => {
   background: radial-gradient(circle at 70% 70%, #2ecc71, transparent 40%);
 }
 
-/* logo */
+/* logo - 图标优化为大脑图标，更符合AI智能教师主题 */
 .logo {
   margin-bottom: 1.5rem;
 }
@@ -216,7 +231,7 @@ const navigateTo = (path: string) => {
   color: var(--primary-color);
 }
 
-/* 卡片标题图标 */
+/* 卡片标题图标优化 */
 .title-icon {
   margin-right: 8px;
   font-size: 1.2rem;
@@ -241,18 +256,25 @@ const navigateTo = (path: string) => {
   margin-bottom: 1rem;
 }
 
-/* 按钮样式 */
+/* 按钮样式 - 增加箭头图标过渡效果 */
 .btn-role {
   border-radius: 999px;
   padding: 0.5rem 1.4rem;
   font-weight: 600;
   transition: transform 0.22s, box-shadow 0.22s;
 }
+.btn-role i {
+  margin-left: 6px;
+  font-size: 0.8rem;
+  transition: transform 0.2s;
+}
+.btn-role:hover i {
+  transform: translateX(4px);
+}
 .btn-role:hover {
   transform: translateY(-3px);
   box-shadow: 0 10px 26px rgba(0,0,0,0.12);
 }
-
 
 /* 响应式 */
 @media (max-width: 768px) {

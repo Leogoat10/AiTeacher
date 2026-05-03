@@ -26,4 +26,10 @@
         ORDER BY s.student_id
     </select>
 
+    <update id="updateStudentPassword">
+        UPDATE students
+        SET password = #{newPassword}
+        WHERE student_id = #{studentId}
+    </update>
+
     </mapper>

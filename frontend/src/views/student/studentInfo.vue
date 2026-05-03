@@ -17,6 +17,11 @@ const apiClient = axios.create({
 const loading = ref(false)
 const error = ref<string | null>(null)
 const student = ref<StuDto | null>(null)
+const oldPassword = ref('')
+const newPassword = ref('')
+const passwordLoading = ref(false)
+const passwordError = ref<string | null>(null)
+const passwordSuccess = ref<string | null>(null)
 
 async function fetchStudent() {
   error.value = null
@@ -43,6 +48,31 @@ async function fetchStudent() {
 onMounted(() => {
   fetchStudent()
 })
+
+async function changePassword() {
+  passwordError.value = null
+  passwordSuccess.value = null
+  if (!oldPassword.value || !newPassword.value) {
+    passwordError.value = '请输入原始密码和新密码'
+    return
+  }
+
+  passwordLoading.value = true
+  try {
+    await apiClient.post('/Info/studentInfo/password', {
+      oldPassword: oldPassword.value,
+      newPassword: newPassword.value
+    })
+    passwordSuccess.value = '密码修改成功'
+    oldPassword.value = ''
+    newPassword.value = ''
+    fetchStudent()
+  } catch (err: any) {
+    passwordError.value = err.response?.data || '密码修改失败'
+  } finally {
+    passwordLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -82,6 +112,33 @@ onMounted(() => {
           <span class="value password-field">{{ student.password }}</span>
         </div>
       </div>
+
+      <details class="password-panel">
+        <summary class="password-summary">修改密码</summary>
+        <div class="password-form-row">
+          <label for="student-old-password">原始密码</label>
+          <input
+            id="student-old-password"
+            v-model="oldPassword"
+            type="password"
+            placeholder="请输入原始密码"
+          />
+        </div>
+        <div class="password-form-row">
+          <label for="student-new-password">新密码</label>
+          <input
+            id="student-new-password"
+            v-model="newPassword"
+            type="password"
+            placeholder="请输入新密码"
+          />
+        </div>
+        <div v-if="passwordError" class="password-message error">{{ passwordError }}</div>
+        <div v-if="passwordSuccess" class="password-message success">{{ passwordSuccess }}</div>
+        <button class="password-btn" @click="changePassword" :disabled="passwordLoading">
+          {{ passwordLoading ? '提交中...' : '确认修改' }}
+        </button>
+      </details>
     </div>
 
     <div v-else-if="!loading && !error" class="empty-state">
@@ -214,6 +271,71 @@ onMounted(() => {
   padding: 2rem;
   color: #a0aec0;
   font-style: italic;
+}
+
+.password-panel {
+  width: 100%;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.password-summary {
+  font-weight: 600;
+  color: #2d3748;
+  cursor: pointer;
+  margin-bottom: 0.8rem;
+}
+
+.password-panel[open] .password-summary {
+  margin-bottom: 1rem;
+}
+
+.password-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.8rem;
+}
+
+.password-form-row label {
+  font-size: 0.9rem;
+  color: #4a5568;
+}
+
+.password-form-row input {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.password-btn {
+  margin-top: 0.5rem;
+  padding: 0.55rem 1rem;
+  background-color: #409eff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.password-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.password-message {
+  margin-top: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.password-message.error {
+  color: #d03050;
+}
+
+.password-message.success {
+  color: #16a34a;
 }
 
 @media (max-width: 768px) {

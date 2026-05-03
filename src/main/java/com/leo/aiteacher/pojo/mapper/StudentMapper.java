@@ -16,4 +16,6 @@ public interface StudentMapper extends BaseMapper<StuDto> {
     int insertStudent(StuDto newStudent);
 
     List<StuDto> listByCourseCode(@Param("courseCode") String courseCode);
+
+    int updateStudentPassword(@Param("studentId") Integer studentId, @Param("newPassword") String newPassword);
 }
