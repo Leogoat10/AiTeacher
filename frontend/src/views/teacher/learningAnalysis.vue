@@ -67,7 +67,6 @@ const analysisLoaded = ref(false)
 
 const overview = ref<any>(null)
 const distribution = ref<any>(null)
-const trend = ref<any[]>([])
 const weakPoints = ref<WeakPoint[]>([])
 const students = ref<StudentProfile[]>([])
 const selectedStudent = ref<any>(null)
@@ -122,10 +121,6 @@ const formatStudentScore = (student: StudentProfile | null | undefined): string 
   return '--'
 }
 
-const sortedTrend = computed(() => {
-  return [...trend.value].sort((a, b) => String(a.date).localeCompare(String(b.date)))
-})
-
 const allChecked = computed(() => {
   if (studentsForPick.value.length === 0) return false
   return studentsForPick.value.every(item => selectedStudentIds.value.includes(item.studentId))
@@ -134,7 +129,6 @@ const allChecked = computed(() => {
 function resetAnalysisResult() {
   overview.value = null
   distribution.value = null
-  trend.value = []
   weakPoints.value = []
   students.value = []
   selectedStudent.value = null
@@ -245,7 +239,6 @@ async function loadLatestSavedAnalysisResult() {
       overview.value = res.data?.overview || null
       distribution.value = res.data?.distribution || null
       weakPoints.value = res.data?.weakKnowledgePoints || []
-      trend.value = res.data?.trend || []
       aiRecommendation.value = res.data?.aiRecommendation || null
       if (Array.isArray(res.data?.studentProfiles) && res.data.studentProfiles.length > 0) {
         students.value = res.data.studentProfiles as StudentProfile[]
@@ -297,7 +290,6 @@ async function runManualAnalysis() {
     })
     overview.value = res.data?.overview || null
     distribution.value = res.data?.distribution || null
-    trend.value = res.data?.trend || []
     weakPoints.value = res.data?.weakKnowledgePoints || []
     students.value = res.data?.studentProfiles || []
     aiRecommendation.value = res.data?.aiRecommendation || null
@@ -406,7 +398,6 @@ onMounted(() => {
       <div class="overview-grid">
         <div class="card"><div class="card-title">学生总数</div><div class="card-value">{{ hasSavedData ? displayOverview.totalStudents : getEmptyStateText() }}</div></div>
         <div class="card"><div class="card-title">答题总数</div><div class="card-value">{{ hasSavedData ? displayOverview.totalAnswers : getEmptyStateText() }}</div></div>
-        <div class="card"><div class="card-title">本次均分</div><div class="card-value">{{ hasSavedData ? displayOverview.avgScore : getEmptyStateText() }}</div></div>
         <div class="card"><div class="card-title">预备知识达标率</div><div class="card-value">{{ hasSavedData ? (displayOverview.masteryRate + '%') : getEmptyStateText() }}</div></div>
         <div class="card"><div class="card-title">答题覆盖率</div><div class="card-value">{{ hasSavedData ? (displayOverview.answerCoverage + '%') : getEmptyStateText() }}</div></div>
         <div class="card"><div class="card-title">风险学生数</div><div class="card-value danger">{{ hasSavedData ? displayOverview.riskStudentCount : getEmptyStateText() }}</div></div>
@@ -428,19 +419,6 @@ onMounted(() => {
             <b>{{ point.frequency }}</b>
           </div>
         </div>
-      </div>
-
-      <div class="panel">
-        <h3>历史趋势（日）</h3>
-        <table v-if="sortedTrend.length > 0">
-          <thead><tr><th>日期</th><th>平均分</th><th>答题数</th></tr></thead>
-          <tbody>
-            <tr v-for="item in sortedTrend" :key="item.date">
-              <td>{{ item.date }}</td><td>{{ item.avgScore }}</td><td>{{ item.answerCount }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="empty">暂无趋势数据</div>
       </div>
 
       <div class="panel">

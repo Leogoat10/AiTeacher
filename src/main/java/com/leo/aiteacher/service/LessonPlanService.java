@@ -10,6 +10,12 @@ public interface LessonPlanService {
 
     Map<String, Object> getConversations();
 
+    Map<String, Object> listPresetPrompts();
+
+    Map<String, Object> createPresetPrompt(String title, String promptContent);
+
+    Map<String, Object> deletePresetPrompt(Long presetId);
+
     Map<String, Object> createLessonPlanTask(String subject, String grade, String teachingTopic,
                                              Integer durationMinutes, Integer interactionCount,
                                              String customRequirement, Integer conversationId,

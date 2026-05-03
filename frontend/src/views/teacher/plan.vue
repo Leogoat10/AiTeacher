@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { marked } from 'marked'
 import katex from 'katex'
@@ -19,6 +19,15 @@ interface ChatMessage {
   id: number
   contextUsed?: boolean
   contextRounds?: number
+}
+
+interface PresetPrompt {
+  id: number
+  title: string
+  promptContent: string
+  systemDefault: boolean
+  teacherId?: number | null
+  createdAt?: string
 }
 
 const CONTEXT_ROUNDS = 5
@@ -107,6 +116,14 @@ const teachingTopic = ref('')
 const durationMinutes = ref(45)
 const interactionCount = ref(3)
 const customRequirement = ref('')
+const presetPrompts = ref<PresetPrompt[]>([])
+const loadingPresetPrompts = ref(false)
+const previewPresetPrompt = ref<PresetPrompt | null>(null)
+const showPresetPreviewDialog = ref(false)
+const showAddPresetDialog = ref(false)
+const newPresetTitle = ref('')
+const newPresetContent = ref('')
+const creatingPresetPrompt = ref(false)
 const contextInstruction = ref('')
 const useRecentContext = ref(false)
 const educationOptions = [
@@ -265,6 +282,93 @@ const switchToConversation = async (conversationId: number) => {
     showHistoryDialog.value = false
   } catch (err: any) {
     ElMessage.error(err.response?.data?.error || '切换对话失败')
+  }
+}
+
+const fetchPresetPrompts = async () => {
+  loadingPresetPrompts.value = true
+  try {
+    const res = await apiClient.get('/teacher/lesson-plan/v1/preset-prompts')
+    if (res.data.success) {
+      presetPrompts.value = Array.isArray(res.data.items) ? res.data.items : []
+      return
+    }
+    ElMessage.error(res.data.error || '获取预设提示词失败')
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '获取预设提示词失败')
+  } finally {
+    loadingPresetPrompts.value = false
+  }
+}
+
+const applyPresetPrompt = (preset: PresetPrompt) => {
+  const next = customRequirement.value.trim()
+    ? `${customRequirement.value.trim()}\n${preset.promptContent}`
+    : preset.promptContent
+  customRequirement.value = next
+  ElMessage.success('已填入补充要求')
+}
+
+const previewPreset = (preset: PresetPrompt) => {
+  previewPresetPrompt.value = preset
+  showPresetPreviewDialog.value = true
+}
+
+const openAddPresetDialog = () => {
+  newPresetTitle.value = ''
+  newPresetContent.value = ''
+  showAddPresetDialog.value = true
+}
+
+const createPresetPrompt = async () => {
+  if (!newPresetTitle.value.trim()) {
+    ElMessage.warning('请输入预设名称')
+    return
+  }
+  if (!newPresetContent.value.trim()) {
+    ElMessage.warning('请输入预设内容')
+    return
+  }
+  creatingPresetPrompt.value = true
+  try {
+    const res = await apiClient.post('/teacher/lesson-plan/v1/preset-prompts', {
+      title: newPresetTitle.value.trim(),
+      promptContent: newPresetContent.value.trim()
+    })
+    if (res.data.success) {
+      ElMessage.success('预设添加成功')
+      showAddPresetDialog.value = false
+      await fetchPresetPrompts()
+      return
+    }
+    ElMessage.error(res.data.error || '预设添加失败')
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '预设添加失败')
+  } finally {
+    creatingPresetPrompt.value = false
+  }
+}
+
+const deletePresetPrompt = async (preset: PresetPrompt) => {
+  try {
+    await ElMessageBox.confirm(`确认删除预设「${preset.title}」吗？`, '提示', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+  try {
+    const res = await apiClient.delete(`/teacher/lesson-plan/v1/preset-prompts/${preset.id}`)
+    if (res.data.success) {
+      ElMessage.success('预设已删除')
+      await fetchPresetPrompts()
+      return
+    }
+    ElMessage.error(res.data.error || '删除失败')
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '删除失败')
   }
 }
 
@@ -548,7 +652,7 @@ const send = async () => {
 }
 
 onMounted(async () => {
-  await createNewConversation()
+  await Promise.all([createNewConversation(), fetchPresetPrompts()])
 })
 </script>
 
@@ -631,6 +735,46 @@ onMounted(async () => {
               :disabled="loading"
               placeholder="例如：加强分层提问，控制课堂节奏"
             />
+            <div class="preset-prompt-panel">
+              <div class="preset-prompt-header">
+                <span>预设 Prompt</span>
+                <div class="preset-prompt-actions">
+                  <el-button size="small" text @click="fetchPresetPrompts" :loading="loadingPresetPrompts">刷新</el-button>
+                  <el-button size="small" text type="primary" @click="openAddPresetDialog">新增</el-button>
+                </div>
+              </div>
+              <el-empty
+                v-if="!loadingPresetPrompts && presetPrompts.length === 0"
+                description="暂无预设Prompt"
+                :image-size="56"
+              />
+              <div v-else class="preset-prompt-list">
+                <div v-for="preset in presetPrompts" :key="preset.id" class="preset-prompt-item">
+                  <div class="preset-prompt-main">
+                    <div class="preset-prompt-title">
+                      <span>{{ preset.title }}</span>
+                      <el-tag size="small" :type="preset.systemDefault ? 'success' : 'info'" effect="plain">
+                        {{ preset.systemDefault ? '系统默认' : '我的新增' }}
+                      </el-tag>
+                    </div>
+                    <div class="preset-prompt-preview">{{ preset.promptContent }}</div>
+                  </div>
+                  <div class="preset-prompt-item-actions">
+                    <el-button size="small" text @click="previewPreset(preset)">预览</el-button>
+                    <el-button size="small" text type="primary" @click="applyPresetPrompt(preset)">使用</el-button>
+                    <el-button
+                      v-if="!preset.systemDefault"
+                      size="small"
+                      text
+                      type="danger"
+                      @click="deletePresetPrompt(preset)"
+                    >
+                      删除
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </el-form-item>
         </template>
 
@@ -735,6 +879,32 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+    </el-dialog>
+
+    <el-dialog v-model="showPresetPreviewDialog" title="预设Prompt预览" width="640px">
+      <div class="preset-preview-content">{{ previewPresetPrompt?.promptContent }}</div>
+    </el-dialog>
+
+    <el-dialog v-model="showAddPresetDialog" title="新增预设Prompt" width="640px">
+      <el-form label-position="top">
+        <el-form-item label="预设名称">
+          <el-input v-model="newPresetTitle" maxlength="100" placeholder="例如：探究互动加强版" />
+        </el-form-item>
+        <el-form-item label="预设内容">
+          <el-input
+            v-model="newPresetContent"
+            type="textarea"
+            :rows="6"
+            maxlength="3000"
+            show-word-limit
+            placeholder="请输入希望填入“补充要求”的Prompt内容"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showAddPresetDialog = false">取消</el-button>
+        <el-button type="primary" :loading="creatingPresetPrompt" @click="createPresetPrompt">保存</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -1050,6 +1220,84 @@ onMounted(async () => {
 .history-time {
   color: #909399;
   font-size: 12px;
+}
+
+.preset-prompt-panel {
+  margin-top: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.preset-prompt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.preset-prompt-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.preset-prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.preset-prompt-item {
+  border: 1px solid #dbe5f2;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+}
+
+.preset-prompt-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preset-prompt-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.preset-prompt-preview {
+  font-size: 12px;
+  color: #64748b;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.preset-prompt-item-actions {
+  margin-top: 6px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.preset-preview-content {
+  white-space: pre-wrap;
+  line-height: 1.8;
+  color: #334155;
+  max-height: 420px;
+  overflow-y: auto;
 }
 
 @media (max-width: 1180px) {

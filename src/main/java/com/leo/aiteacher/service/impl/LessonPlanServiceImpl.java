@@ -7,11 +7,13 @@ import com.leo.aiteacher.client.DeepSeekChatClient;
 import com.leo.aiteacher.pojo.dto.ConversationDto;
 import com.leo.aiteacher.pojo.dto.GenerationTaskDto;
 import com.leo.aiteacher.pojo.dto.LessonPlanDto;
+import com.leo.aiteacher.pojo.dto.LessonPlanPromptPresetDto;
 import com.leo.aiteacher.pojo.dto.LessonPlanTaskDto;
 import com.leo.aiteacher.pojo.dto.TeacherDto;
 import com.leo.aiteacher.pojo.mapper.ConversationMapper;
 import com.leo.aiteacher.pojo.mapper.GenerationTaskMapper;
 import com.leo.aiteacher.pojo.mapper.LessonPlanMapper;
+import com.leo.aiteacher.pojo.mapper.LessonPlanPromptPresetMapper;
 import com.leo.aiteacher.pojo.mapper.LessonPlanTaskMapper;
 import com.leo.aiteacher.service.LessonPlanService;
 import com.leo.aiteacher.util.SessionUtils;
@@ -44,6 +46,9 @@ public class LessonPlanServiceImpl implements LessonPlanService {
     private LessonPlanMapper lessonPlanMapper;
 
     @Resource
+    private LessonPlanPromptPresetMapper lessonPlanPromptPresetMapper;
+
+    @Resource
     private ConversationMapper conversationMapper;
 
     @Resource
@@ -61,6 +66,7 @@ public class LessonPlanServiceImpl implements LessonPlanService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AtomicBoolean lessonPlanTaskSchemaChecked = new AtomicBoolean(false);
+    private final AtomicBoolean lessonPlanPromptPresetSchemaChecked = new AtomicBoolean(false);
 
     @Override
     public Map<String, Object> createConversation() {
@@ -141,6 +147,135 @@ public class LessonPlanServiceImpl implements LessonPlanService {
 
         result.put("success", true);
         result.put("conversations", new java.util.ArrayList<>(conversationMap.values()));
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> listPresetPrompts() {
+        ensureLessonPlanPromptPresetSchema();
+        Map<String, Object> result = new HashMap<>();
+        TeacherDto teacher = SessionUtils.getCurrentTeacher();
+        if (teacher == null) {
+            result.put("success", false);
+            result.put("error", "未登录");
+            result.put("status", HttpStatus.UNAUTHORIZED.value());
+            return result;
+        }
+
+        List<LessonPlanPromptPresetDto> presets = lessonPlanPromptPresetMapper.selectList(
+                new QueryWrapper<LessonPlanPromptPresetDto>()
+                        .and(wrapper -> wrapper.eq("is_system_default", 1).or().eq("teacher_id", teacher.getTeacherId()))
+                        .orderByDesc("is_system_default")
+                        .orderByAsc("id")
+        );
+
+        List<Map<String, Object>> items = presets.stream().map(preset -> {
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", preset.getId());
+            item.put("title", preset.getTitle());
+            item.put("promptContent", preset.getPromptContent());
+            item.put("systemDefault", Boolean.TRUE.equals(preset.getSystemDefault()));
+            item.put("teacherId", preset.getTeacherId());
+            item.put("createdAt", preset.getCreatedAt());
+            return item;
+        }).toList();
+
+        result.put("success", true);
+        result.put("items", items);
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> createPresetPrompt(String title, String promptContent) {
+        ensureLessonPlanPromptPresetSchema();
+        Map<String, Object> result = new HashMap<>();
+        TeacherDto teacher = SessionUtils.getCurrentTeacher();
+        if (teacher == null) {
+            result.put("success", false);
+            result.put("error", "未登录");
+            result.put("status", HttpStatus.UNAUTHORIZED.value());
+            return result;
+        }
+
+        String normalizedTitle = normalizeText(title);
+        String normalizedPromptContent = normalizeText(promptContent);
+        if (isBlank(normalizedTitle)) {
+            result.put("success", false);
+            result.put("error", "预设名称不能为空");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+        if (normalizedTitle.length() > 100) {
+            result.put("success", false);
+            result.put("error", "预设名称长度不能超过100个字符");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+        if (isBlank(normalizedPromptContent)) {
+            result.put("success", false);
+            result.put("error", "预设内容不能为空");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+        if (normalizedPromptContent.length() > 3000) {
+            result.put("success", false);
+            result.put("error", "预设内容长度不能超过3000个字符");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+
+        LessonPlanPromptPresetDto preset = new LessonPlanPromptPresetDto();
+        preset.setTeacherId(teacher.getTeacherId());
+        preset.setTitle(normalizedTitle);
+        preset.setPromptContent(normalizedPromptContent);
+        preset.setSystemDefault(false);
+        lessonPlanPromptPresetMapper.insert(preset);
+
+        result.put("success", true);
+        result.put("id", preset.getId());
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> deletePresetPrompt(Long presetId) {
+        ensureLessonPlanPromptPresetSchema();
+        Map<String, Object> result = new HashMap<>();
+        TeacherDto teacher = SessionUtils.getCurrentTeacher();
+        if (teacher == null) {
+            result.put("success", false);
+            result.put("error", "未登录");
+            result.put("status", HttpStatus.UNAUTHORIZED.value());
+            return result;
+        }
+        if (presetId == null) {
+            result.put("success", false);
+            result.put("error", "预设ID不能为空");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+
+        LessonPlanPromptPresetDto preset = lessonPlanPromptPresetMapper.selectById(presetId);
+        if (preset == null) {
+            result.put("success", false);
+            result.put("error", "预设不存在");
+            result.put("status", HttpStatus.NOT_FOUND.value());
+            return result;
+        }
+        if (Boolean.TRUE.equals(preset.getSystemDefault())) {
+            result.put("success", false);
+            result.put("error", "系统默认预设不支持删除");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+        if (!teacher.getTeacherId().equals(preset.getTeacherId())) {
+            result.put("success", false);
+            result.put("error", "无权限删除该预设");
+            result.put("status", HttpStatus.FORBIDDEN.value());
+            return result;
+        }
+
+        lessonPlanPromptPresetMapper.deleteById(presetId);
+        result.put("success", true);
         return result;
     }
 
@@ -957,6 +1092,58 @@ public class LessonPlanServiceImpl implements LessonPlanService {
         }
         String trimmed = raw.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void ensureLessonPlanPromptPresetSchema() {
+        if (lessonPlanPromptPresetSchemaChecked.get()) {
+            return;
+        }
+        synchronized (lessonPlanPromptPresetSchemaChecked) {
+            if (lessonPlanPromptPresetSchemaChecked.get()) {
+                return;
+            }
+            try {
+                jdbcTemplate.execute("""
+                        CREATE TABLE IF NOT EXISTS lesson_plan_prompt_presets (
+                            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                            teacher_id INT NULL COMMENT '创建教师ID，系统默认预设为空',
+                            title VARCHAR(100) NOT NULL COMMENT '预设名称',
+                            prompt_content TEXT NOT NULL COMMENT '预设Prompt内容',
+                            is_system_default TINYINT(1) DEFAULT 0 NOT NULL COMMENT '是否系统默认预设',
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NULL,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+                            KEY idx_lpp_teacher (teacher_id),
+                            KEY idx_lpp_system_default (is_system_default),
+                            CONSTRAINT fk_lpp_teacher FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id) ON DELETE CASCADE
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                        """);
+                seedSystemPresetPrompt("课堂节奏控制版", "加强课堂节奏控制：导入不超过5分钟，核心讲授分段推进，每10分钟加入一次互动检查点，结尾留3分钟课堂小结。");
+                seedSystemPresetPrompt("分层教学加强版", "请设计分层教学方案：同一环节需提供基础任务、进阶任务、挑战任务，并写出针对学困生与资优生的具体指导语。");
+                seedSystemPresetPrompt("探究互动优先版", "请将教学过程设计为探究驱动：至少包含3次小组协作或同伴讨论，明确每次互动的目标、流程、教师追问与预期产出。");
+                seedSystemPresetPrompt("考试导向巩固版", "请强化考试能力训练：突出高频考点、易错点和答题规范，每个关键环节加入1个即时检测问题并附纠错建议。");
+                lessonPlanPromptPresetSchemaChecked.set(true);
+            } catch (Exception ex) {
+                logger.error("自动补齐 lesson_plan_prompt_presets 表结构失败", ex);
+                throw new RuntimeException("lesson_plan_prompt_presets 表结构缺失，且自动迁移失败，请手动执行 aiTeacher.sql 中相关建表语句");
+            }
+        }
+    }
+
+    private void seedSystemPresetPrompt(String title, String content) {
+        jdbcTemplate.update(
+                """
+                        INSERT INTO lesson_plan_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+                        SELECT NULL, ?, ?, 1
+                        FROM DUAL
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM lesson_plan_prompt_presets
+                            WHERE is_system_default = 1
+                              AND title = ?
+                        )
+                        """,
+                title, content, title
+        );
     }
 
     private void ensureLessonPlanTaskSchema() {

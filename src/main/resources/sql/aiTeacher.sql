@@ -313,6 +313,53 @@ CREATE TABLE IF NOT EXISTS lesson_plans (
             ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS lesson_plan_prompt_presets (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id        INT                                  NULL COMMENT '创建教师ID，系统默认预设为空',
+    title             VARCHAR(100)                         NOT NULL COMMENT '预设名称',
+    prompt_content    TEXT                                 NOT NULL COMMENT '预设Prompt内容',
+    is_system_default TINYINT(1) DEFAULT 0                NOT NULL COMMENT '是否系统默认预设',
+    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL,
+    updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_lpp_teacher (teacher_id),
+    KEY idx_lpp_system_default (is_system_default),
+    CONSTRAINT fk_lpp_teacher
+        FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id)
+            ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO lesson_plan_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+SELECT NULL, '课堂节奏控制版', '加强课堂节奏控制：导入不超过5分钟，核心讲授分段推进，每10分钟加入一次互动检查点，结尾留3分钟课堂小结。', 1
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM lesson_plan_prompt_presets
+    WHERE is_system_default = 1 AND title = '课堂节奏控制版'
+);
+
+INSERT INTO lesson_plan_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+SELECT NULL, '分层教学加强版', '请设计分层教学方案：同一环节需提供基础任务、进阶任务、挑战任务，并写出针对学困生与资优生的具体指导语。', 1
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM lesson_plan_prompt_presets
+    WHERE is_system_default = 1 AND title = '分层教学加强版'
+);
+
+INSERT INTO lesson_plan_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+SELECT NULL, '探究互动优先版', '请将教学过程设计为探究驱动：至少包含3次小组协作或同伴讨论，明确每次互动的目标、流程、教师追问与预期产出。', 1
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM lesson_plan_prompt_presets
+    WHERE is_system_default = 1 AND title = '探究互动优先版'
+);
+
+INSERT INTO lesson_plan_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+SELECT NULL, '考试导向巩固版', '请强化考试能力训练：突出高频考点、易错点和答题规范，每个关键环节加入1个即时检测问题并附纠错建议。', 1
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM lesson_plan_prompt_presets
+    WHERE is_system_default = 1 AND title = '考试导向巩固版'
+);
+
 -- ============================================
 -- 5) 老库兼容补丁（缺失才补）
 -- ============================================

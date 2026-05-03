@@ -59,6 +59,71 @@ public class LessonPlanController {
         }
     }
 
+    @GetMapping("/preset-prompts")
+    public ResponseEntity<?> listPresetPrompts() {
+        try {
+            Map<String, Object> result = lessonPlanService.listPresetPrompts();
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("获取教案预设提示词异常", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @PostMapping("/preset-prompts")
+    public ResponseEntity<?> createPresetPrompt(@RequestBody Map<String, Object> requestData) {
+        try {
+            if (requestData == null || requestData.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "success", false,
+                        "error", "请求数据不能为空"
+                ));
+            }
+            String title = stringValue(requestData.get("title"));
+            String promptContent = stringValue(requestData.get("promptContent"));
+            Map<String, Object> result = lessonPlanService.createPresetPrompt(title, promptContent);
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("创建教案预设提示词异常", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @DeleteMapping("/preset-prompts/{presetId}")
+    public ResponseEntity<?> deletePresetPrompt(@PathVariable Long presetId) {
+        try {
+            Map<String, Object> result = lessonPlanService.deletePresetPrompt(presetId);
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("删除教案预设提示词异常", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
     @GetMapping("/conversation/{conversationId}")
     public ResponseEntity<?> getConversationDetail(@PathVariable Integer conversationId) {
         try {
