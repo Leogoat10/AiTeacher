@@ -159,25 +159,39 @@ public class StudentGradingAsyncService {
         prompt.append("必须只返回一个 JSON 对象，不要返回任何额外文本、解释、Markdown。\n");
         prompt.append("JSON结构必须严格包含以下字段：\n");
         prompt.append("{\n");
-        prompt.append("  \"totalScore\": \"得分/总分\",\n");
+        prompt.append("  \"totalScore\": 得分数值,\n");
+        prompt.append("  \"maxScore\": 总分数值,\n");
+        prompt.append("  \"totalScoreDisplay\": \"得分/总分\",\n");
         prompt.append("  \"overallComment\": \"总评，<=150字\",\n");
         prompt.append("  \"itemScores\": [\n");
         prompt.append("    {\n");
         prompt.append("      \"questionNo\": 1,\n");
-        prompt.append("      \"score\": \"x/y\",\n");
+        prompt.append("      \"score\": 得分数值,\n");
+        prompt.append("      \"fullScore\": 该题满分数值,\n");
+        prompt.append("      \"scoreDisplay\": \"x/y\",\n");
         prompt.append("      \"comment\": \"该题评分说明，<=60字\",\n");
-        prompt.append("      \"isCorrect\": true\n");
+        prompt.append("      \"isCorrect\": true,\n");
+        prompt.append("      \"knowledgePoint\": \"该题对应知识点\"\n");
         prompt.append("    }\n");
         prompt.append("  ],\n");
         prompt.append("  \"weakPoints\": [\"薄弱点1\", \"薄弱点2\"],\n");
         prompt.append("  \"suggestions\": [\"建议1\", \"建议2\"]\n");
         prompt.append("}\n");
         prompt.append("要求：\n");
-        prompt.append("1) totalScore 必须是 \"得分/总分\" 格式。\n");
+        prompt.append("1) totalScore/maxScore/score/fullScore 必须为数字，totalScoreDisplay/scoreDisplay 必须与数字一致。\n");
         prompt.append("2) itemScores 至少1项，questionNo 从1递增。\n");
-        prompt.append("3) weakPoints 和 suggestions 为字符串数组，可为空数组。\n");
-        prompt.append("4) 严禁输出 JSON 以外的内容。\n\n");
+        prompt.append("3) 必须严格按题目给定分值评分，不得自行更改总分。\n");
+        prompt.append("4) weakPoints 和 suggestions 为字符串数组，可为空数组。\n");
+        prompt.append("5) 严禁输出 JSON 以外的内容。\n\n");
         prompt.append("题目标题：").append(assignment.getTitle()).append("\n\n");
+        if (assignment.getTotalScore() != null) {
+            prompt.append("本次作业总分：").append(assignment.getTotalScore()).append("分\n\n");
+        }
+        if (assignment.getQuestionStructureJson() != null && !assignment.getQuestionStructureJson().isBlank()) {
+            prompt.append("题目结构与分值(JSON)：\n")
+                    .append(assignment.getQuestionStructureJson())
+                    .append("\n\n");
+        }
         prompt.append("题目内容与参考答案：\n").append(assignment.getContent()).append("\n\n");
         prompt.append("学生答案：\n").append(studentAnswer).append("\n");
         return prompt.toString();
@@ -201,13 +215,10 @@ public class StudentGradingAsyncService {
             return fallbackEvaluation(aiResponse);
         }
 
-        String totalScore = totalScoreNode.asText("");
-        if (!totalScore.matches("^\\s*\\d+(\\.\\d+)?\\s*/\\s*\\d+(\\.\\d+)?\\s*$")) {
-            totalScore = "待评";
-        }
+        String totalScore = normalizeTotalScoreDisplay(root);
 
         String analysis = buildAnalysisFromStructured(root);
-        String normalizedJson = objectMapper.writeValueAsString(root);
+        String normalizedJson = objectMapper.writeValueAsString(normalizeEvaluationRoot(root));
         return new EvaluationResult(totalScore, analysis, normalizedJson);
     }
 
@@ -239,7 +250,7 @@ public class StudentGradingAsyncService {
             analysis.append("分题评分：");
             for (JsonNode item : itemScores) {
                 int no = item.path("questionNo").asInt(0);
-                String score = item.path("score").asText("-");
+                String score = normalizeItemScoreDisplay(item);
                 String comment = item.path("comment").asText("");
                 analysis.append("\n").append(no).append(") ").append(score);
                 if (!comment.isBlank()) {
@@ -273,6 +284,125 @@ public class StudentGradingAsyncService {
 
     private EvaluationResult fallbackEvaluation(String aiResponse) {
         return new EvaluationResult("待评", aiResponse, null);
+    }
+
+    private JsonNode normalizeEvaluationRoot(JsonNode root) {
+        com.fasterxml.jackson.databind.node.ObjectNode normalized = objectMapper.createObjectNode();
+        double totalScore = parseNumericField(root, "totalScore");
+        double maxScore = parseNumericField(root, "maxScore");
+        if (maxScore <= 0 && root.has("totalScoreDisplay")) {
+            double[] pair = parseScorePair(root.path("totalScoreDisplay").asText(""));
+            totalScore = pair[0];
+            maxScore = pair[1];
+        }
+        normalized.put("totalScore", totalScore);
+        normalized.put("maxScore", maxScore);
+        normalized.put("totalScoreDisplay", formatScoreDisplay(totalScore, maxScore));
+        normalized.put("overallComment", root.path("overallComment").asText(""));
+
+        com.fasterxml.jackson.databind.node.ArrayNode normalizedItems = objectMapper.createArrayNode();
+        JsonNode itemScores = root.path("itemScores");
+        if (itemScores.isArray()) {
+            for (JsonNode item : itemScores) {
+                com.fasterxml.jackson.databind.node.ObjectNode normalizedItem = objectMapper.createObjectNode();
+                double score = parseNumericField(item, "score");
+                double fullScore = parseNumericField(item, "fullScore");
+                if (fullScore <= 0) {
+                    fullScore = parseNumericField(item, "maxScore");
+                }
+                if (fullScore <= 0 && item.has("scoreDisplay")) {
+                    double[] pair = parseScorePair(item.path("scoreDisplay").asText(""));
+                    score = pair[0];
+                    fullScore = pair[1];
+                }
+                normalizedItem.put("questionNo", item.path("questionNo").asInt(0));
+                normalizedItem.put("score", score);
+                normalizedItem.put("fullScore", fullScore);
+                normalizedItem.put("scoreDisplay", formatScoreDisplay(score, fullScore));
+                normalizedItem.put("comment", item.path("comment").asText(""));
+                normalizedItem.put("isCorrect", item.path("isCorrect").asBoolean(false));
+                normalizedItem.put("knowledgePoint", item.path("knowledgePoint").asText(""));
+                normalizedItems.add(normalizedItem);
+            }
+        }
+        normalized.set("itemScores", normalizedItems);
+        normalized.set("weakPoints", root.path("weakPoints").isArray() ? root.path("weakPoints") : objectMapper.createArrayNode());
+        normalized.set("suggestions", root.path("suggestions").isArray() ? root.path("suggestions") : objectMapper.createArrayNode());
+        return normalized;
+    }
+
+    private String normalizeTotalScoreDisplay(JsonNode root) {
+        if (root.has("totalScoreDisplay")) {
+            String display = root.path("totalScoreDisplay").asText("");
+            if (display.matches("^\\s*\\d+(\\.\\d+)?\\s*/\\s*\\d+(\\.\\d+)?\\s*$")) {
+                return display;
+            }
+        }
+        double totalScore = parseNumericField(root, "totalScore");
+        double maxScore = parseNumericField(root, "maxScore");
+        if (maxScore <= 0 && root.has("totalScore")) {
+            String display = root.path("totalScore").asText("");
+            if (display.matches("^\\s*\\d+(\\.\\d+)?\\s*/\\s*\\d+(\\.\\d+)?\\s*$")) {
+                return display;
+            }
+        }
+        return maxScore > 0 ? formatScoreDisplay(totalScore, maxScore) : "待评";
+    }
+
+    private String normalizeItemScoreDisplay(JsonNode item) {
+        if (item.has("scoreDisplay")) {
+            String display = item.path("scoreDisplay").asText("");
+            if (display.matches("^\\s*\\d+(\\.\\d+)?\\s*/\\s*\\d+(\\.\\d+)?\\s*$")) {
+                return display;
+            }
+        }
+        double score = parseNumericField(item, "score");
+        double fullScore = parseNumericField(item, "fullScore");
+        if (fullScore <= 0) {
+            fullScore = parseNumericField(item, "maxScore");
+        }
+        if (fullScore <= 0 && item.has("score")) {
+            String display = item.path("score").asText("");
+            if (display.matches("^\\s*\\d+(\\.\\d+)?\\s*/\\s*\\d+(\\.\\d+)?\\s*$")) {
+                return display;
+            }
+        }
+        return fullScore > 0 ? formatScoreDisplay(score, fullScore) : "-";
+    }
+
+    private double parseNumericField(JsonNode node, String fieldName) {
+        JsonNode value = node.path(fieldName);
+        if (value.isNumber()) {
+            return value.asDouble();
+        }
+        if (value.isTextual()) {
+            try {
+                return Double.parseDouble(value.asText("").trim());
+            } catch (Exception ignored) {
+            }
+        }
+        return -1;
+    }
+
+    private double[] parseScorePair(String scoreText) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("^\\s*(\\d+(?:\\.\\d+)?)\\s*/\\s*(\\d+(?:\\.\\d+)?)\\s*$")
+                .matcher(scoreText == null ? "" : scoreText);
+        if (!matcher.find()) {
+            return new double[]{0, -1};
+        }
+        return new double[]{Double.parseDouble(matcher.group(1)), Double.parseDouble(matcher.group(2))};
+    }
+
+    private String formatScoreDisplay(double score, double fullScore) {
+        return trimTrailingZero(score) + "/" + trimTrailingZero(fullScore);
+    }
+
+    private String trimTrailingZero(double value) {
+        if (Math.rint(value) == value) {
+            return String.valueOf((long) value);
+        }
+        return String.valueOf(value);
     }
 
     private record EvaluationResult(String score, String analysis, String evaluationJson) {

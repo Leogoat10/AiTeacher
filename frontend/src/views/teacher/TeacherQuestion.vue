@@ -5,6 +5,7 @@ import axios from 'axios'
 import { marked } from 'marked'
 import katex from 'katex'
 import DOMPurify from 'dompurify'
+import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
 import { useRouter } from "vue-router";
 import { Clock, ChatDotRound, Loading } from '@element-plus/icons-vue'
 import 'katex/dist/katex.min.css'
@@ -462,7 +463,7 @@ const statusLabelMap: Record<string, string> = {
 
 const taskStatusTagType = computed(() => statusTypeMap[taskStatus.value] || 'info')
 const taskStatusLabel = computed(() => statusLabelMap[taskStatus.value] || '等待中')
-const hasContextHistory = computed(() => chatHistory.value.some(msg => msg.role === 'ai' && !!(msg.rawContent || msg.content)))
+const hasContextHistory = computed(() => chatHistory.value.some(msg => msg.role === 'ai' && !!msg.content))
 const contextModeAvailable = computed(() => !!currentConversationId.value && hasContextHistory.value)
 const canSubmit = computed(() => {
   if (loading.value) return false
@@ -492,6 +493,9 @@ const buildMarkdownFromResult = (questions: any[], issues: any[]) => {
     markdownParts.push(`${idx + 1}. ${q.stem || ''}`)
     if (Array.isArray(q.options) && q.options.length > 0) {
       q.options.forEach((opt: string) => markdownParts.push(`   ${opt}`))
+    }
+    if (q.score !== undefined && q.score !== null && q.score !== '') {
+      markdownParts.push(`   分值：${q.score}分`)
     }
     markdownParts.push('   答案与解析：')
     markdownParts.push(`   答案：${q.answer || ''}`)
@@ -545,6 +549,7 @@ const parseStructuredQuestionsFromMarkdown = (rawMarkdown: string): Array<{
   options: string[];
   answer: string;
   analysis?: string;
+  score?: number;
 }> => {
   if (!rawMarkdown) return []
 
@@ -559,6 +564,7 @@ const parseStructuredQuestionsFromMarkdown = (rawMarkdown: string): Array<{
     options: string[];
     answer: string;
     analysis?: string;
+    score?: number;
   }> = []
 
   let current: {
@@ -566,6 +572,7 @@ const parseStructuredQuestionsFromMarkdown = (rawMarkdown: string): Array<{
     inSolution: boolean;
     answer: string;
     analysis: string;
+    score?: number;
   } | null = null
 
   const flushCurrent = () => {
@@ -579,7 +586,8 @@ const parseStructuredQuestionsFromMarkdown = (rawMarkdown: string): Array<{
         type: '',
         options,
         answer: current.answer || '',
-        analysis: current.analysis || ''
+        analysis: current.analysis || '',
+        score: current.score
       })
     }
     current = null
@@ -593,7 +601,8 @@ const parseStructuredQuestionsFromMarkdown = (rawMarkdown: string): Array<{
         stemCandidate: [questionMatch[2]?.trim() || ''],
         inSolution: false,
         answer: '',
-        analysis: ''
+        analysis: '',
+        score: undefined
       }
       continue
     }
@@ -605,6 +614,12 @@ const parseStructuredQuestionsFromMarkdown = (rawMarkdown: string): Array<{
 
     if (trimmed.includes('答案与解析') || trimmed.includes('参考答案')) {
       current.inSolution = true
+      continue
+    }
+
+    const scoreMatch = trimmed.match(/^分值[：:]\s*(\d+(?:\.\d+)?)\s*分?$/)
+    if (scoreMatch) {
+      current.score = Number(scoreMatch[1])
       continue
     }
 
@@ -913,45 +928,159 @@ const hasSelectedMessages = computed(() => {
   return selectedMessages.value.size > 0
 })
 
-// 导出为Word文档 - 修改导出逻辑
-const exportToWord = () => {
+const normalizeFormulaToken = (token: string): string => {
+  if (token.startsWith('\\[') && token.endsWith('\\]')) return token.slice(2, -2).trim()
+  if (token.startsWith('\\(') && token.endsWith('\\)')) return token.slice(2, -2).trim()
+  if (token.startsWith('$$') && token.endsWith('$$')) return token.slice(2, -2).trim()
+  if (token.startsWith('$') && token.endsWith('$')) return token.slice(1, -1).trim()
+  return token.trim()
+}
+
+const parseInlineRuns = (line: string): TextRun[] => {
+  if (!line) return [new TextRun('')]
+  const runs: TextRun[] = []
+  const tokenRegex = /(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$[^\$\n]+?\$|\*\*[^*]+\*\*|`[^`]+`)/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null = tokenRegex.exec(line)
+  while (match) {
+    if (match.index > lastIndex) {
+      runs.push(new TextRun(line.slice(lastIndex, match.index)))
+    }
+    const token = match[0]
+    if (token.startsWith('**') && token.endsWith('**')) {
+      runs.push(new TextRun({ text: token.slice(2, -2), bold: true }))
+    } else if (
+      (token.startsWith('\\[') && token.endsWith('\\]')) ||
+      (token.startsWith('\\(') && token.endsWith('\\)')) ||
+      (token.startsWith('$$') && token.endsWith('$$')) ||
+      (token.startsWith('$') && token.endsWith('$'))
+    ) {
+      runs.push(new TextRun({ text: normalizeFormulaToken(token), font: 'Cambria Math' }))
+    } else if (token.startsWith('`') && token.endsWith('`')) {
+      runs.push(new TextRun({ text: token.slice(1, -1), font: 'Consolas' }))
+    } else {
+      runs.push(new TextRun(token))
+    }
+    lastIndex = tokenRegex.lastIndex
+    match = tokenRegex.exec(line)
+  }
+  if (lastIndex < line.length) {
+    runs.push(new TextRun(line.slice(lastIndex)))
+  }
+  return runs.length > 0 ? runs : [new TextRun('')]
+}
+
+const markdownToParagraphs = (markdown: string): Paragraph[] => {
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n')
+  const paragraphs: Paragraph[] = []
+  let inCodeBlock = false
+  for (const line of lines) {
+    const raw = line || ''
+    const trimmed = raw.trim()
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock
+      continue
+    }
+    if (inCodeBlock) {
+      paragraphs.push(new Paragraph({ children: [new TextRun({ text: raw, font: 'Consolas' })] }))
+      continue
+    }
+    if (!trimmed) {
+      paragraphs.push(new Paragraph({}))
+      continue
+    }
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
+    if (headingMatch) {
+      const level = headingMatch[1].length
+      const text = headingMatch[2]
+      const heading =
+        level === 1 ? HeadingLevel.HEADING_1 :
+          level === 2 ? HeadingLevel.HEADING_2 :
+            level === 3 ? HeadingLevel.HEADING_3 :
+              level === 4 ? HeadingLevel.HEADING_4 :
+                level === 5 ? HeadingLevel.HEADING_5 : HeadingLevel.HEADING_6
+      paragraphs.push(new Paragraph({ heading, children: parseInlineRuns(text) }))
+      continue
+    }
+    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/)
+    if (bulletMatch) {
+      paragraphs.push(new Paragraph({ bullet: { level: 0 }, children: parseInlineRuns(bulletMatch[1]) }))
+      continue
+    }
+    const numberMatch = trimmed.match(/^(\d+)[\.\)]\s+(.+)$/)
+    if (numberMatch) {
+      paragraphs.push(new Paragraph({ children: parseInlineRuns(`${numberMatch[1]}. ${numberMatch[2]}`) }))
+      continue
+    }
+    const quoteMatch = trimmed.match(/^>\s?(.+)$/)
+    if (quoteMatch) {
+      paragraphs.push(new Paragraph({ children: [new TextRun({ text: `引用：${quoteMatch[1]}`, italics: true })] }))
+      continue
+    }
+    paragraphs.push(new Paragraph({ children: parseInlineRuns(trimmed) }))
+  }
+  return paragraphs
+}
+
+const createAndDownloadWord = async (messages: Array<{ content: string; timestamp: Date }>) => {
+  const children: Paragraph[] = [
+    new Paragraph({ heading: HeadingLevel.TITLE, children: [new TextRun('AI题目导出')] }),
+    new Paragraph({})
+  ]
+
+  messages.forEach((message, index) => {
+    children.push(new Paragraph({
+      heading: HeadingLevel.HEADING_1,
+      children: [new TextRun(`第${index + 1}组题目`)]
+    }))
+    children.push(new Paragraph({ children: [new TextRun(`生成时间：${message.timestamp.toLocaleString()}`)] }))
+    children.push(...markdownToParagraphs(message.content || ''))
+    children.push(new Paragraph({}))
+  })
+
+  const wordDocument = new Document({
+    sections: [{ properties: {}, children }]
+  })
+  const blob = await Packer.toBlob(wordDocument)
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `AI题目_${new Date().toISOString().slice(0, 10)}.docx`
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+  ElMessage.success('导出成功')
+}
+
+// 导出为Word文档
+const exportToWord = async () => {
   if (chatHistory.value.length === 0) {
     ElMessage.warning('暂无内容可导出')
     return
   }
 
   // 如果没有选中任何消息，则导出所有AI生成的内容
-  let contentsToExport: string[]
+  let messagesToExport: Array<{ content: string; timestamp: Date }>
 
   if (selectedMessages.value.size === 0) {
-    contentsToExport = chatHistory.value
+    messagesToExport = chatHistory.value
         .filter(msg => msg.role === 'ai')
-        .map(msg => msg.rawContent || msg.content)  // 优先使用原始内容
+        .map(msg => ({ content: msg.content, timestamp: msg.timestamp }))
   } else {
     // 只导出选中的内容
-    contentsToExport = chatHistory.value
+    messagesToExport = chatHistory.value
         .filter(msg => msg.role === 'ai' && selectedMessages.value.has(msg.id))
-        .map(msg => msg.rawContent || msg.content)  // 优先使用原始内容
+        .map(msg => ({ content: msg.content, timestamp: msg.timestamp }))
   }
 
-  if (contentsToExport.length === 0) {
+  if (messagesToExport.length === 0) {
     ElMessage.warning('没有AI生成的内容可导出')
     return
   }
 
-  const content = contentsToExport.join('\n\n')
-  createAndDownloadWord(content)
-}
-
-// 创建并下载Word文档
-const createAndDownloadWord = (content: string) => {
-  const blob = new Blob([content], { type: 'application/msword;charset=utf-8' })
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = `AI教师助手_${new Date().toISOString().slice(0, 10)}.doc`
-  link.click()
-
-  ElMessage.success('导出成功')
+  try {
+    await createAndDownloadWord(messagesToExport)
+  } catch {
+    ElMessage.error('导出失败，请重试')
+  }
 }
 
 // 发送题目相关
@@ -1017,7 +1146,7 @@ const sendAssignmentToCourse = async () => {
     // 合并所有选中的题目内容为一个答题任务
     const mergedContent = selectedAIMessages
       .map((msg, idx) => {
-        const content = msg.rawContent || msg.content
+        const content = msg.content
         // 如果有多条消息，为每条消息添加序号标识
         if (selectedAIMessages.length > 1) {
           return `### 第${idx + 1}部分\n\n${content}`
@@ -1026,9 +1155,19 @@ const sendAssignmentToCourse = async () => {
       })
       .join('\n\n---\n\n')
 
+    const mergedStructuredQuestions = selectedAIMessages.flatMap(msg =>
+      Array.isArray(msg.structuredQuestions) ? msg.structuredQuestions : []
+    )
+    const totalScore = mergedStructuredQuestions.reduce((sum, q) => {
+      const score = Number(q?.score)
+      return sum + (Number.isFinite(score) ? score : 0)
+    }, 0)
+
     const payloadAssignments = [{
       title: sendForm.value.title,
-      content: mergedContent
+      content: mergedContent,
+      totalScore: totalScore > 0 ? totalScore : null,
+      questionStructureJson: mergedStructuredQuestions.length > 0 ? JSON.stringify(mergedStructuredQuestions) : null
     }]
 
     const res = await apiClient.post('/assignment/sendBatchToCourse', {
@@ -1037,7 +1176,6 @@ const sendAssignmentToCourse = async () => {
     })
 
     const successCount = res.data?.successCount || 0
-    const failCount = res.data?.failCount || 0
     const totalStudents = res.data?.studentCount || 0
 
     if (successCount > 0) {

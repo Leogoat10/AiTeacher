@@ -26,7 +26,8 @@ interface StudentProfile {
   studentName: string
   answerCount: number
   avgScore: number
-  preparednessScore: number
+  aiScore?: string | number
+  scoreDisplay?: string
   masteryLevel: string
   recommendation: string
   aiAnalysis?: string
@@ -104,6 +105,21 @@ const levelClass = (level: string): string => {
   if (level === '良好') return 'level-good'
   if (level === '待提升') return 'level-improve'
   return 'level-weak'
+}
+
+const formatStudentScore = (student: StudentProfile | null | undefined): string => {
+  if (!student) return '--'
+  const scoreDisplay = String(student.scoreDisplay ?? '').trim()
+  if (scoreDisplay) return scoreDisplay
+
+  const rawAiScore = String(student.aiScore ?? '').trim()
+  if (rawAiScore.includes('/')) return rawAiScore
+  const aiScoreNumber = Number(rawAiScore)
+  if (rawAiScore && Number.isFinite(aiScoreNumber)) return `${aiScoreNumber}/100`
+
+  const avgScoreNumber = Number(student.avgScore)
+  if (Number.isFinite(avgScoreNumber)) return `${avgScoreNumber}/100`
+  return '--'
 }
 
 const sortedTrend = computed(() => {
@@ -454,14 +470,13 @@ onMounted(() => {
         <h3>学生学情画像</h3>
         <table v-if="students.length > 0">
           <thead>
-            <tr><th>学生</th><th>答题数</th><th>平均分</th><th>预备知识评分</th><th>掌握层级</th><th>建议</th><th>操作</th></tr>
+            <tr><th>学生</th><th>答题数</th><th>得分/总分</th><th>掌握层级</th><th>建议</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="stu in students" :key="stu.studentId">
               <td>{{ stu.studentName }}</td>
               <td>{{ stu.answerCount }}</td>
-              <td>{{ stu.avgScore }}</td>
-              <td>{{ stu.preparednessScore }}</td>
+              <td>{{ formatStudentScore(stu) }}</td>
               <td><span class="level-tag" :class="levelClass(stu.masteryLevel)">{{ stu.masteryLevel }}</span></td>
               <td>{{ stu.recommendation }}</td>
               <td><button class="mini-btn" @click="viewStudentProfile(stu.studentId)">查看分析</button></td>
@@ -476,8 +491,7 @@ onMounted(() => {
         <div v-else class="profile-grid">
           <div><b>学生：</b>{{ selectedStudent.studentName }}</div>
           <div><b>答题数：</b>{{ selectedStudent.answerCount }}</div>
-          <div><b>平均分：</b>{{ selectedStudent.avgScore }}</div>
-          <div><b>预备知识评分：</b>{{ selectedStudent.preparednessScore }}</div>
+          <div><b>得分/总分：</b>{{ formatStudentScore(selectedStudent) }}</div>
           <div><b>掌握层级：</b>{{ selectedStudent.masteryLevel }}</div>
           <div><b>学习建议：</b>{{ selectedStudent.recommendation }}</div>
         </div>

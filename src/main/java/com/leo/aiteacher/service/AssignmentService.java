@@ -14,7 +14,8 @@ public interface AssignmentService {
      * @param title 题目标题
      * @return 发送结果
      */
-    Map<String, Object> sendAssignmentToCourse(Integer messageId, String content, String courseCode, Integer teacherId, String title);
+    Map<String, Object> sendAssignmentToCourse(Integer messageId, String content, String courseCode, Integer teacherId,
+                                               String title, Integer totalScore, String questionStructureJson);
 
     /**
      * 批量发送题目到课程

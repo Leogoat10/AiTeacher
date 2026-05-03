@@ -481,6 +481,9 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
                 }
             }
 
+            if (q.has("score") && q.path("score").isNumber()) {
+                sb.append("   分值：").append(q.path("score").asText("")).append("分\n");
+            }
             sb.append("   答案：").append(q.path("answer").asText("")).append("\n");
             if (!q.path("analysis").asText("").isBlank()) {
                 sb.append("   解析：").append(q.path("analysis").asText("")).append("\n");
@@ -594,7 +597,7 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
     private String buildOutputJsonTemplate(String questionType, String difficulty, boolean useContext) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("【输出格式】\n");
-        prompt.append("必须返回严格JSON（不允许markdown代码块），格式如下：\n");
+        prompt.append("必须返回严格JSON（不允许markdown代码块），格式如下(注意知识格式)：\n");
         prompt.append("{\n");
         prompt.append("  \"questions\": [\n");
         prompt.append("    {\n");

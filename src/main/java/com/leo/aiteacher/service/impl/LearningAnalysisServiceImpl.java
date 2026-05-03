@@ -231,7 +231,8 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
             aggregate.studentName = stringValue(row, "student_name", "studentName");
             aggregate.answerCount++;
 
-            Double score = parseScore(stringValue(row, "ai_score", "aiScore"));
+            String evaluationJson = stringValue(row, "evaluation_json", "evaluationJson");
+            Double score = resolveNormalizedScore(stringValue(row, "ai_score", "aiScore"), evaluationJson);
             if (score != null) {
                 aggregate.scoreSum += score;
                 aggregate.scoreCount++;
@@ -240,7 +241,6 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
             }
 
             String analysis = stringValue(row, "ai_analysis", "aiAnalysis");
-            String evaluationJson = stringValue(row, "evaluation_json", "evaluationJson");
             double modelSignal = evaluateModelSignal(analysis, evaluationJson);
             aggregate.signalSum += modelSignal;
             aggregate.signalCount++;
@@ -253,6 +253,14 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
                 trend.answerCount++;
                 trend.scoreSum += score;
             }
+
+            aggregate.assignmentId = intValue(row, "assignment_id", "assignmentId");
+            aggregate.assignmentTitle = stringValue(row, "assignment_title", "assignmentTitle");
+            aggregate.assignmentContent = stringValue(row, "assignment_content", "assignmentContent");
+            aggregate.latestStudentAnswer = stringValue(row, "student_answer", "studentAnswer");
+            aggregate.latestAiScore = stringValue(row, "ai_score", "aiScore");
+            aggregate.latestAiAnalysis = stringValue(row, "ai_analysis", "aiAnalysis");
+            aggregate.latestEvaluationJson = stringValue(row, "evaluation_json", "evaluationJson");
         }
 
         int excellent = 0;
@@ -288,6 +296,13 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
             profile.put("preparednessScore", round2(preparednessScore));
             profile.put("masteryLevel", level);
             profile.put("recommendation", recommendation);
+            profile.put("assignmentId", aggregate.assignmentId);
+            profile.put("assignmentTitle", aggregate.assignmentTitle);
+            profile.put("assignmentContent", abbreviateText(aggregate.assignmentContent, 1500));
+            profile.put("studentAnswer", abbreviateText(aggregate.latestStudentAnswer, 1500));
+            profile.put("aiScore", aggregate.latestAiScore);
+            profile.put("aiAnalysis", abbreviateText(aggregate.latestAiAnalysis, 800));
+            profile.put("weakKnowledgePoints", extractWeakPoints(aggregate.latestAiAnalysis, aggregate.latestEvaluationJson));
             studentProfiles.add(profile);
         }
 
@@ -404,14 +419,14 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
                 studentName = stringValue(row, "studentName", "student_name");
             }
 
-            Double score = parseScore(stringValue(row, "aiScore", "ai_score"));
+            String evaluationJson = stringValue(row, "evaluationJson", "evaluation_json");
+            Double score = resolveNormalizedScore(stringValue(row, "aiScore", "ai_score"), evaluationJson);
             if (score != null) {
                 scoreSum += score;
                 scoreCount++;
             }
 
             String analysis = stringValue(row, "aiAnalysis", "ai_analysis");
-            String evaluationJson = stringValue(row, "evaluationJson", "evaluation_json");
             signalSum += evaluateModelSignal(analysis, evaluationJson);
             signalCount++;
             mergeWeakPointCounter(weakPointCounter, extractWeakPoints(analysis, evaluationJson));
@@ -524,6 +539,19 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
         if (rawScore == null || rawScore.isBlank()) {
             return null;
         }
+        Matcher ratioMatcher = Pattern.compile("^\\s*(\\d+(?:\\.\\d+)?)\\s*/\\s*(\\d+(?:\\.\\d+)?)\\s*$").matcher(rawScore);
+        if (ratioMatcher.find()) {
+            try {
+                double score = Double.parseDouble(ratioMatcher.group(1));
+                double total = Double.parseDouble(ratioMatcher.group(2));
+                if (total <= 0) {
+                    return null;
+                }
+                return clamp(score * 100.0 / total);
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
         Matcher matcher = SCORE_PATTERN.matcher(rawScore);
         if (!matcher.find()) {
             return null;
@@ -534,6 +562,14 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
         } catch (NumberFormatException ex) {
             return null;
         }
+    }
+
+    private Double resolveNormalizedScore(String rawScore, String evaluationJson) {
+        double jsonScore = scoreFromEvaluationJson(evaluationJson);
+        if (jsonScore >= 0) {
+            return jsonScore;
+        }
+        return parseScore(rawScore);
     }
 
     private double evaluateModelSignal(String analysis, String evaluationJson) {
@@ -696,7 +732,9 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
         try {
             String weakestStudents = studentProfiles.stream()
                     .limit(Math.min(5, studentProfiles.size()))
-                    .map(s -> s.get("studentName") + "(" + s.get("masteryLevel") + ", " + s.get("preparednessScore") + ")")
+                    .map(s -> s.get("studentName") + "(" + s.get("masteryLevel") + ", " + s.get("preparednessScore") + ")"
+                            + " 作答=" + abbreviateText(stringValue(s, "studentAnswer"), 180)
+                            + " AI分析=" + abbreviateText(stringValue(s, "aiAnalysis"), 120))
                     .reduce((a, b) -> a + "；" + b)
                     .orElse("暂无");
             String weakPointText = weakPoints.stream()
@@ -706,9 +744,10 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
             String scope = assignment == null
                     ? "课程整体学情"
                     : "单次作业学情（作业ID=" + assignment.getId() + "，标题=" + assignment.getTitle() + "）";
+            String assignmentContent = assignment == null ? "暂无作业题目与参考答案" : abbreviateText(assignment.getContent(), 2000);
 
             String prompt = """
-                    你是一名教学数据分析专家，请基于以下学情统计输出可执行建议。
+                    你是一名教学数据分析专家，请基于以下作业题目与参考答案、学生作答样本和学情统计输出可执行建议。
                     输出必须是 JSON 对象，不要包含 Markdown 或额外解释。
                     JSON结构:
                     {
@@ -718,12 +757,15 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
                       "resourceSuggestions": ["资源建议1","资源建议2"]
                     }
                     要求：
-                    1) 建议必须和数据强关联，避免空泛表述；
+                    1) 建议必须和作业题目、参考答案、学生真实作答、统计数据强关联，避免空泛表述；
                     2) 至少给出3条教师建议、3条学生建议；
-                    3) 重点围绕薄弱知识点与风险学生展开。
+                    3) 重点围绕薄弱知识点、错因和风险学生展开；
+                    4) 如果题目本身包含多个小题，请指出最需要讲评的小题方向；
+                    5) 不要照抄输入原文，用教师可执行的语言输出。
                     
                     分析范围：%s
                     课程代码：%s
+                    作业题目与参考答案：%s
                     核心指标：%s
                     分层统计：%s
                     薄弱知识点：%s
@@ -731,13 +773,14 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
                     """.formatted(
                     scope,
                     courseCode,
+                    assignmentContent,
                     objectMapper.writeValueAsString(overview),
                     objectMapper.writeValueAsString(distribution),
                     weakPointText,
                     weakestStudents
             );
 
-            DeepSeekChatClient.ChatResult chatResult = deepSeekChatClient.chat(prompt);
+            DeepSeekChatClient.ChatResult chatResult = deepSeekChatClient.chat("learning-analysis-course-recommendation", prompt);
             String jsonText = extractJson(chatResult.content());
             if (jsonText == null || jsonText.isBlank()) {
                 jsonText = extractJson(chatResult.rawResponse());
@@ -909,20 +952,40 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
             String assignmentText = assignment == null
                     ? "未知作业"
                     : ("作业ID=" + assignment.getId() + "，标题=" + assignment.getTitle());
+            String assignmentContent = stringValue(profile, "assignmentContent");
+            if (assignmentContent == null || assignmentContent.isBlank()) {
+                assignmentContent = assignment == null ? "暂无作业题目与参考答案" : assignment.getContent();
+            }
+            String weakPoints = objectMapper.writeValueAsString(profile.getOrDefault("weakKnowledgePoints", List.of()));
             String prompt = """
-                    你是一名资深班主任，请基于学生画像生成该学生本次作业的个性化学情分析。
-                    输出必须是纯文本，不要JSON，不要markdown，不超过180字。
-                    需要包含：学习现状判断、主要问题、下一步建议。
+                    你是一名资深班主任，请基于学生本次作业题目与参考答案、学生原始作答、AI评分结果和学生画像，生成该学生本次作业的个性化学情分析。
+                    输出必须是纯文本，不要JSON，不要markdown，不超过220字。
+                    需要明确包含：学习现状判断、主要问题、下一步建议。
+                    要求：
+                    1) 结论必须紧扣本次作业题目、参考答案和学生实际作答；
+                    2) 优先指出学生与参考答案相比存在的具体错误、遗漏、理解偏差或表达问题；
+                    3) 建议要能直接执行，避免空泛鼓励；
+                    4) 不要重复粘贴题目原文。
                     
                     课程：%s
                     作业：%s
+                    作业题目与参考答案：%s
+                    学生本次作答：%s
+                    AI评分：%s
+                    AI批改分析：%s
+                    识别出的薄弱知识点：%s
                     学生画像：%s
                     """.formatted(
                     courseCode,
                     assignmentText,
+                    abbreviateText(assignmentContent, 2200),
+                    abbreviateText(stringValue(profile, "studentAnswer"), 2200),
+                    stringValue(profile, "aiScore"),
+                    abbreviateText(stringValue(profile, "aiAnalysis"), 1200),
+                    weakPoints,
                     objectMapper.writeValueAsString(profile)
             );
-            DeepSeekChatClient.ChatResult chatResult = deepSeekChatClient.chat(prompt);
+            DeepSeekChatClient.ChatResult chatResult = deepSeekChatClient.chat("learning-analysis-student-profile", prompt);
             String content = chatResult.content() == null ? "" : chatResult.content().trim();
             if (!content.isEmpty()) {
                 return content;
@@ -1075,6 +1138,17 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
         return Math.round(value * 100.0) / 100.0;
     }
 
+    private String abbreviateText(String text, int maxLength) {
+        if (text == null) {
+            return null;
+        }
+        String normalized = text.replace("\r\n", "\n").replaceAll("[\\t\\x0B\\f]+", " ").trim();
+        if (normalized.length() <= maxLength) {
+            return normalized;
+        }
+        return normalized.substring(0, Math.max(0, maxLength)) + "...(已截断)";
+    }
+
     private void ensureStudentAssignmentAnalysisTable() {
         if (studentAssignmentTableReady) {
             return;
@@ -1153,6 +1227,13 @@ public class LearningAnalysisServiceImpl implements LearningAnalysisService {
         int scoreCount;
         double signalSum;
         int signalCount;
+        Integer assignmentId;
+        String assignmentTitle;
+        String assignmentContent;
+        String latestStudentAnswer;
+        String latestAiScore;
+        String latestAiAnalysis;
+        String latestEvaluationJson;
     }
 
     private static class TrendAggregate {

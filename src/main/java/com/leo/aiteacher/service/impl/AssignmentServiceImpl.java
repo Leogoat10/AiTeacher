@@ -36,7 +36,8 @@ public class AssignmentServiceImpl implements AssignmentService {
     
     @Override
     @Transactional
-    public Map<String, Object> sendAssignmentToCourse(Integer messageId, String content, String courseCode, Integer teacherId, String title) {
+    public Map<String, Object> sendAssignmentToCourse(Integer messageId, String content, String courseCode, Integer teacherId,
+                                                      String title, Integer totalScore, String questionStructureJson) {
         Map<String, Object> result = new HashMap<>();
         
         try {
@@ -66,7 +67,8 @@ public class AssignmentServiceImpl implements AssignmentService {
             }
 
             String singleBatchId = "single-" + UUID.randomUUID();
-            AssignmentDto assignment = createAssignment(messageId, content, courseCode, teacherId, title, singleBatchId);
+            AssignmentDto assignment = createAssignment(messageId, content, courseCode, teacherId, title, singleBatchId,
+                    totalScore, questionStructureJson);
             int sentCount = bindAssignmentToStudents(assignment.getId(), students);
 
             logger.info("题目发送成功，assignmentId={}, sendBatchId={}, sentCount={}", assignment.getId(), singleBatchId, sentCount);
@@ -107,6 +109,8 @@ public class AssignmentServiceImpl implements AssignmentService {
                         map.put("id", a.getId());
                         map.put("title", a.getTitle());
                         map.put("content", a.getContent());
+                        map.put("totalScore", a.getTotalScore());
+                        map.put("questionStructureJson", a.getQuestionStructureJson());
                         map.put("createdAt", a.getCreatedAt());
                         return map;
                     })
@@ -153,6 +157,8 @@ public class AssignmentServiceImpl implements AssignmentService {
                 Integer messageId = parseInteger(item.get("messageId"));
                 String title = toSafeString(item.get("title"));
                 String content = toSafeString(item.get("content"));
+                Integer totalScore = resolveTotalScore(item);
+                String questionStructureJson = resolveQuestionStructureJson(item);
 
                 if (title == null || title.trim().isEmpty()) {
                     throw new IllegalArgumentException("题目标题不能为空");
@@ -161,7 +167,8 @@ public class AssignmentServiceImpl implements AssignmentService {
                     throw new IllegalArgumentException("题目内容不能为空");
                 }
 
-                AssignmentDto assignment = createAssignment(messageId, content, courseCode, teacherId, title, sendBatchId);
+                AssignmentDto assignment = createAssignment(messageId, content, courseCode, teacherId, title, sendBatchId,
+                        totalScore, questionStructureJson);
                 int sentCount = bindAssignmentToStudents(assignment.getId(), students);
 
                 successCount++;
@@ -169,6 +176,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                 itemResult.put("message", "发送成功");
                 itemResult.put("assignmentId", assignment.getId());
                 itemResult.put("title", title);
+                itemResult.put("totalScore", assignment.getTotalScore());
                 itemResult.put("sentCount", sentCount);
             } catch (Exception e) {
                 failCount++;
@@ -197,7 +205,8 @@ public class AssignmentServiceImpl implements AssignmentService {
         return courseCount != null && courseCount > 0;
     }
 
-    private AssignmentDto createAssignment(Integer messageId, String content, String courseCode, Integer teacherId, String title, String sendBatchId) {
+    private AssignmentDto createAssignment(Integer messageId, String content, String courseCode, Integer teacherId, String title,
+                                           String sendBatchId, Integer totalScore, String questionStructureJson) {
         AssignmentDto assignment = new AssignmentDto();
         assignment.setMessageId(messageId);
         assignment.setTeacherId(teacherId);
@@ -205,6 +214,8 @@ public class AssignmentServiceImpl implements AssignmentService {
         assignment.setTitle(title);
         assignment.setContent(content);
         assignment.setSendBatchId(sendBatchId);
+        assignment.setTotalScore(totalScore);
+        assignment.setQuestionStructureJson(questionStructureJson);
         assignmentMapper.insert(assignment);
         return assignment;
     }
@@ -235,5 +246,42 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     private String toSafeString(Object value) {
         return value == null ? null : value.toString();
+    }
+
+    private Integer resolveTotalScore(Map<String, Object> item) {
+        Integer totalScore = parseInteger(item.get("totalScore"));
+        if (totalScore != null && totalScore >= 0) {
+            return totalScore;
+        }
+        return sumQuestionScores(item.get("questionStructureJson"));
+    }
+
+    private String resolveQuestionStructureJson(Map<String, Object> item) {
+        Object raw = item.get("questionStructureJson");
+        if (raw == null) {
+            return null;
+        }
+        String text = raw.toString();
+        return text.isBlank() ? null : text;
+    }
+
+    private Integer sumQuestionScores(Object questionStructureJson) {
+        if (questionStructureJson == null) {
+            return null;
+        }
+        String json = questionStructureJson.toString();
+        if (json.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\"score\"\\s*:\\s*(\\d+(?:\\.\\d+)?)")
+                .matcher(json);
+        double total = 0;
+        boolean found = false;
+        while (matcher.find()) {
+            found = true;
+            total += Double.parseDouble(matcher.group(1));
+        }
+        return found ? (int) Math.round(total) : null;
     }
 }

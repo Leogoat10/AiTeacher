@@ -42,6 +42,10 @@ public class AssignmentController {
             String content = (String) requestData.get("content");
             String courseCode = (String) requestData.get("courseCode");
             String title = (String) requestData.get("title");
+            Integer totalScore = parseInteger(requestData.get("totalScore"));
+            String questionStructureJson = requestData.get("questionStructureJson") == null
+                    ? null
+                    : String.valueOf(requestData.get("questionStructureJson"));
             
             if (courseCode == null || title == null || content == null) {
                 logger.warn("请求参数不完整: courseCode={}, title={}, content={}", courseCode, title, content != null ? "存在" : "null");
@@ -52,7 +56,7 @@ public class AssignmentController {
                     teacher.getTeacherId(), courseCode, title);
             
             Map<String, Object> result = assignmentService.sendAssignmentToCourse(
-                    messageId, content, courseCode, teacher.getTeacherId(), title);
+                    messageId, content, courseCode, teacher.getTeacherId(), title, totalScore, questionStructureJson);
             
             if ((Boolean) result.get("success")) {
                 return ResponseEntity.ok(result);
@@ -129,6 +133,23 @@ public class AssignmentController {
         } catch (Exception e) {
             logger.error("查询课程题目异常", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("查询失败: " + e.getMessage());
+        }
+    }
+
+    private Integer parseInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Integer intVal) {
+            return intVal;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
         }
     }
 }

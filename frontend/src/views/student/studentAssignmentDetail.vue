@@ -122,6 +122,7 @@ interface Assignment {
   assignment_id: number
   title: string
   content: string
+  total_score?: number
   course_name: string
   teacher_name: string
   assignment_created_at: string
@@ -350,6 +351,13 @@ onMounted(() => {
                 <span style="margin-left: 5px;">提交时间</span>
               </template>
               {{ formatDate(assignment.submitted_at) }}
+            </el-descriptions-item>
+            <el-descriptions-item v-if="assignment.total_score">
+              <template #label>
+                <el-icon><Check /></el-icon>
+                <span style="margin-left: 5px;">作业总分</span>
+              </template>
+              {{ assignment.total_score }} 分
             </el-descriptions-item>
           </el-descriptions>
         </el-card>

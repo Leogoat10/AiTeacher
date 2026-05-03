@@ -5,6 +5,7 @@ import axios from 'axios'
 import { marked } from 'marked'
 import katex from 'katex'
 import DOMPurify from 'dompurify'
+import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx'
 import { useRouter } from 'vue-router'
 import { ChatDotRound } from '@element-plus/icons-vue'
 import 'katex/dist/katex.min.css'
@@ -101,13 +102,59 @@ const renderMarkdown = (content: string): string => {
 }
 
 const subject = ref('')
-const grade = ref('')
+const grade = ref<string | string[]>('')
 const teachingTopic = ref('')
 const durationMinutes = ref(45)
 const interactionCount = ref(3)
 const customRequirement = ref('')
 const contextInstruction = ref('')
 const useRecentContext = ref(false)
+const educationOptions = [
+  {
+    value: '小学',
+    label: '小学',
+    children: [
+      { value: '一年级', label: '一年级' },
+      { value: '二年级', label: '二年级' },
+      { value: '三年级', label: '三年级' },
+      { value: '三年级', label: '四年级' },
+      { value: '五年级', label: '五年级' },
+      { value: '六年级', label: '六年级' }
+    ]
+  },
+  {
+    value: '初中',
+    label: '初中',
+    children: [
+      { value: '七年级', label: '七年级' },
+      { value: '八年级', label: '八年级' },
+      { value: '九年级', label: '九年级' }
+    ]
+  },
+  {
+    value: '高中',
+    label: '高中',
+    children: [
+      { value: '高一', label: '高一' },
+      { value: '高二', label: '高二' },
+      { value: '高三', label: '高三' }
+    ]
+  },
+  {
+    value: '大学',
+    label: '大学',
+    children: [
+      { value: '大学一年级', label: '大学一年级' },
+      { value: '大学二年级', label: '大学二年级' },
+      { value: '大学三年级', label: '大学三年级' },
+      { value: '大学四年级', label: '大学四年级' }
+    ]
+  },
+  {
+    value: '其他',
+    label: '其他'
+  }
+]
 
 const loading = ref(false)
 const taskStatus = ref<TaskStatus | null>(null)
@@ -119,12 +166,21 @@ const creatingConversation = ref(false)
 const loadingHistory = ref(false)
 const showHistoryDialog = ref(false)
 const historyConversations = ref<Array<{ id: number; createTime: string; title: string }>>([])
+const selectedAiMessageIds = ref<Set<number>>(new Set())
 let messageIdCounter = 0
 
 const contextModeAvailable = computed(() => !!currentConversationId.value && chatHistory.value.some((item) => item.role === 'ai'))
 const canSubmit = computed(() => !loading.value && (!!currentConversationId.value || !useRecentContext.value))
 const aiMessageCount = computed(() => chatHistory.value.filter(item => item.role === 'ai').length)
 const userMessageCount = computed(() => chatHistory.value.filter(item => item.role === 'user').length)
+const exportableAiMessages = computed(() => chatHistory.value.filter((message) => isExportableAiMessage(message)))
+const hasAnyExportableAiMessage = computed(() => exportableAiMessages.value.length > 0)
+const hasSelectedAiMessage = computed(() => selectedAiMessageIds.value.size > 0)
+const isAllAiMessageSelected = computed(() => {
+  const messages = exportableAiMessages.value
+  return messages.length > 0 && messages.every((message) => selectedAiMessageIds.value.has(message.id))
+})
+const normalizedGrade = computed(() => Array.isArray(grade.value) ? grade.value.toString() : grade.value)
 const taskStatusType = computed(() => {
   if (taskStatus.value === 'FAILED') return 'danger'
   if (taskStatus.value === 'SUCCESS') return 'success'
@@ -146,6 +202,7 @@ const createNewConversation = async () => {
     if (res.data.success) {
       currentConversationId.value = res.data.conversationId
       chatHistory.value = []
+      selectedAiMessageIds.value = new Set()
       messageIdCounter = 0
       ElMessage.success('新对话已创建')
       return
@@ -193,6 +250,7 @@ const switchToConversation = async (conversationId: number) => {
     }
     currentConversationId.value = conversationId
     chatHistory.value = []
+    selectedAiMessageIds.value = new Set()
     messageIdCounter = 0
     const messages = Array.isArray(res.data.messages) ? res.data.messages : []
     messages.forEach((item: any) => {
@@ -207,6 +265,175 @@ const switchToConversation = async (conversationId: number) => {
     showHistoryDialog.value = false
   } catch (err: any) {
     ElMessage.error(err.response?.data?.error || '切换对话失败')
+  }
+}
+
+const isExportableAiMessage = (message: ChatMessage): boolean => {
+  if (message.role !== 'ai') return false
+  const content = message.content?.trim() || ''
+  if (!content) return false
+  return !content.startsWith('生成失败：') && !content.startsWith('任务状态：')
+}
+
+const toggleAiMessageSelection = (messageId: number) => {
+  const selected = new Set(selectedAiMessageIds.value)
+  if (selected.has(messageId)) {
+    selected.delete(messageId)
+  } else {
+    selected.add(messageId)
+  }
+  selectedAiMessageIds.value = selected
+}
+
+const toggleSelectAllAiMessages = () => {
+  if (isAllAiMessageSelected.value) {
+    selectedAiMessageIds.value = new Set()
+    return
+  }
+  selectedAiMessageIds.value = new Set(exportableAiMessages.value.map((message) => message.id))
+}
+
+const normalizeFormulaToken = (token: string): string => {
+  if (token.startsWith('\\[') && token.endsWith('\\]')) return token.slice(2, -2).trim()
+  if (token.startsWith('\\(') && token.endsWith('\\)')) return token.slice(2, -2).trim()
+  if (token.startsWith('$$') && token.endsWith('$$')) return token.slice(2, -2).trim()
+  if (token.startsWith('$') && token.endsWith('$')) return token.slice(1, -1).trim()
+  return token.trim()
+}
+
+const parseInlineRuns = (line: string): TextRun[] => {
+  if (!line) return [new TextRun('')]
+  const runs: TextRun[] = []
+  const tokenRegex = /(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$[^\$\n]+?\$|\*\*[^*]+\*\*|`[^`]+`)/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null = tokenRegex.exec(line)
+  while (match) {
+    if (match.index > lastIndex) {
+      runs.push(new TextRun(line.slice(lastIndex, match.index)))
+    }
+    const token = match[0]
+    if (token.startsWith('**') && token.endsWith('**')) {
+      runs.push(new TextRun({ text: token.slice(2, -2), bold: true }))
+    } else if (
+      (token.startsWith('\\[') && token.endsWith('\\]')) ||
+      (token.startsWith('\\(') && token.endsWith('\\)')) ||
+      (token.startsWith('$$') && token.endsWith('$$')) ||
+      (token.startsWith('$') && token.endsWith('$'))
+    ) {
+      runs.push(new TextRun({ text: normalizeFormulaToken(token), font: 'Cambria Math' }))
+    } else if (token.startsWith('`') && token.endsWith('`')) {
+      runs.push(new TextRun({ text: token.slice(1, -1), font: 'Consolas' }))
+    } else {
+      runs.push(new TextRun(token))
+    }
+    lastIndex = tokenRegex.lastIndex
+    match = tokenRegex.exec(line)
+  }
+  if (lastIndex < line.length) {
+    runs.push(new TextRun(line.slice(lastIndex)))
+  }
+  return runs.length > 0 ? runs : [new TextRun('')]
+}
+
+const markdownToParagraphs = (markdown: string): Paragraph[] => {
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n')
+  const paragraphs: Paragraph[] = []
+  let inCodeBlock = false
+  for (const line of lines) {
+    const raw = line || ''
+    const trimmed = raw.trim()
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock
+      continue
+    }
+    if (inCodeBlock) {
+      paragraphs.push(new Paragraph({ children: [new TextRun({ text: raw, font: 'Consolas' })] }))
+      continue
+    }
+    if (!trimmed) {
+      paragraphs.push(new Paragraph({}))
+      continue
+    }
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
+    if (headingMatch) {
+      const level = headingMatch[1].length
+      const text = headingMatch[2]
+      const heading =
+        level === 1 ? HeadingLevel.HEADING_1 :
+          level === 2 ? HeadingLevel.HEADING_2 :
+            level === 3 ? HeadingLevel.HEADING_3 :
+              level === 4 ? HeadingLevel.HEADING_4 :
+                level === 5 ? HeadingLevel.HEADING_5 : HeadingLevel.HEADING_6
+      paragraphs.push(new Paragraph({ heading, children: parseInlineRuns(text) }))
+      continue
+    }
+    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/)
+    if (bulletMatch) {
+      paragraphs.push(new Paragraph({
+        bullet: { level: 0 },
+        children: parseInlineRuns(bulletMatch[1])
+      }))
+      continue
+    }
+    const numberMatch = trimmed.match(/^(\d+)\.\s+(.+)$/)
+    if (numberMatch) {
+      paragraphs.push(new Paragraph({ children: parseInlineRuns(`${numberMatch[1]}. ${numberMatch[2]}`) }))
+      continue
+    }
+    const quoteMatch = trimmed.match(/^>\s?(.+)$/)
+    if (quoteMatch) {
+      paragraphs.push(new Paragraph({ children: [new TextRun({ text: `引用：${quoteMatch[1]}`, italics: true })] }))
+      continue
+    }
+    paragraphs.push(new Paragraph({ children: parseInlineRuns(trimmed) }))
+  }
+  return paragraphs
+}
+
+const createAndDownloadWord = async (messages: ChatMessage[]) => {
+  const children: Paragraph[] = [
+    new Paragraph({
+      heading: HeadingLevel.TITLE,
+      children: [new TextRun('AI教案导出')]
+    }),
+    new Paragraph({})
+  ]
+
+  messages.forEach((message, index) => {
+    children.push(new Paragraph({
+      heading: HeadingLevel.HEADING_1,
+      children: [new TextRun(`第${index + 1}份教案`)]
+    }))
+    children.push(new Paragraph({ children: [new TextRun(`生成时间：${message.timestamp.toLocaleString()}`)] }))
+    children.push(...markdownToParagraphs(message.content || ''))
+    children.push(new Paragraph({}))
+  })
+
+  const wordDocument = new Document({
+    sections: [{
+      properties: {},
+      children
+    }]
+  })
+  const blob = await Packer.toBlob(wordDocument)
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `AI教案_${new Date().toISOString().slice(0, 10)}.docx`
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000)
+  ElMessage.success('导出成功')
+}
+
+const exportSelectedAiPlans = async () => {
+  const selectedMessages = exportableAiMessages.value.filter((message) => selectedAiMessageIds.value.has(message.id))
+  if (selectedMessages.length === 0) {
+    ElMessage.warning('请先选择要导出的AI教案')
+    return
+  }
+  try {
+    await createAndDownloadWord(selectedMessages)
+  } catch {
+    ElMessage.error('导出失败，请重试')
   }
 }
 
@@ -255,7 +482,7 @@ const send = async () => {
       ElMessage.warning('请输入科目')
       return
     }
-    if (!grade.value.trim()) {
+    if (!normalizedGrade.value.trim()) {
       ElMessage.warning('请输入年级')
       return
     }
@@ -272,7 +499,7 @@ const send = async () => {
 
   const userMessage = useRecentContext.value
     ? `上下文增量指令：${contextInstruction.value.trim()} [关联最近${CONTEXT_ROUNDS}轮上下文]`
-    : `${subject.value} ${grade.value} ${teachingTopic.value} (${durationMinutes.value}分钟, 互动${interactionCount.value}个)`
+    : `${subject.value} ${normalizedGrade.value} ${teachingTopic.value} (${durationMinutes.value}分钟, 互动${interactionCount.value}个)`
   chatHistory.value.push({ role: 'user', content: userMessage, timestamp: new Date(), id: messageIdCounter++ })
 
   loading.value = true
@@ -281,7 +508,7 @@ const send = async () => {
   try {
     const payload = {
       subject: useRecentContext.value ? null : subject.value.trim(),
-      grade: useRecentContext.value ? null : grade.value.trim(),
+      grade: useRecentContext.value ? null : normalizedGrade.value.trim(),
       teachingTopic: useRecentContext.value ? null : teachingTopic.value.trim(),
       durationMinutes: useRecentContext.value ? null : durationMinutes.value,
       interactionCount: useRecentContext.value ? null : interactionCount.value,
@@ -374,7 +601,14 @@ onMounted(async () => {
             <el-input v-model="subject" placeholder="例如：数学" :disabled="loading" />
           </el-form-item>
           <el-form-item label="年级">
-            <el-input v-model="grade" placeholder="例如：七年级" :disabled="loading" />
+            <el-cascader
+              v-model="grade"
+              :options="educationOptions"
+              :props="{ expandTrigger: 'hover' }"
+              placeholder="请选择年级"
+              style="width: 100%"
+              :disabled="loading"
+            />
           </el-form-item>
           <el-form-item label="课题">
             <el-input v-model="teachingTopic" placeholder="例如：一元一次方程应用" :disabled="loading" />
@@ -422,7 +656,24 @@ onMounted(async () => {
     <section class="right-panel">
       <header class="chat-header">
         <h3>教案对话</h3>
-        <span class="chat-sub">AI 输出支持 Markdown / LaTeX 渲染</span>
+        <div class="chat-actions">
+          <span class="chat-sub">AI 输出支持 Markdown / LaTeX 渲染</span>
+          <el-button
+            size="small"
+            @click="toggleSelectAllAiMessages"
+            :disabled="!hasAnyExportableAiMessage"
+          >
+            {{ isAllAiMessageSelected ? '取消全选教案' : '全选教案' }}
+          </el-button>
+          <el-button
+            size="small"
+            type="success"
+            @click="exportSelectedAiPlans"
+            :disabled="!hasSelectedAiMessage"
+          >
+            导出Word
+          </el-button>
+        </div>
       </header>
 
       <div class="chat-body">
@@ -436,7 +687,18 @@ onMounted(async () => {
           <div class="message-wrap">
             <div class="message-header">
               <strong>{{ message.role === 'user' ? '您' : 'AI助手' }}</strong>
-              <span class="timestamp">{{ message.timestamp.toLocaleTimeString() }}</span>
+              <div class="message-meta">
+                <el-button
+                  v-if="isExportableAiMessage(message)"
+                  text
+                  type="primary"
+                  size="small"
+                  @click="toggleAiMessageSelection(message.id)"
+                >
+                  {{ selectedAiMessageIds.has(message.id) ? '已选择导出' : '选择导出' }}
+                </el-button>
+                <span class="timestamp">{{ message.timestamp.toLocaleTimeString() }}</span>
+              </div>
             </div>
             <el-card :shadow="message.role === 'user' ? 'never' : 'hover'" :class="['message-content', message.role]">
               <template v-if="message.role === 'ai'">
@@ -606,6 +868,12 @@ onMounted(async () => {
   align-items: center;
 }
 
+.chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .chat-header h3 {
   margin: 0;
   font-size: 17px;
@@ -647,6 +915,12 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .avatar {

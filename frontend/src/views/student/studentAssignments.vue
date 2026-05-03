@@ -18,6 +18,7 @@ interface Assignment {
   assignment_id: number
   title: string
   content: string
+  total_score?: number
   course_name: string
   teacher_name: string
   assignment_created_at: string
@@ -206,6 +207,9 @@ onUnmounted(() => {
           <div class="info-item">
             <el-icon><Clock /></el-icon>
             <span>发布时间：{{ formatDate(assignment.assignment_created_at) }}</span>
+          </div>
+          <div v-if="assignment.total_score" class="info-item">
+            <span>总分：{{ assignment.total_score }} 分</span>
           </div>
           <div v-if="assignment.ai_score" class="info-item score-item">
             <el-icon><Check /></el-icon>

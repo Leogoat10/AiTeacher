@@ -11,7 +11,7 @@ import java.util.Map;
 @Mapper
 public interface StudentAssignmentMapper extends BaseMapper<StudentAssignmentDto> {
     
-    @Select("SELECT sa.*, a.title, a.content, a.created_at as assignment_created_at, " +
+    @Select("SELECT sa.*, a.title, a.content, a.total_score, a.question_structure_json, a.created_at as assignment_created_at, " +
             "c.course_name, t.teacher_name, " +
             "ans.student_answer, ans.ai_score, ans.ai_analysis, ans.evaluation_json, ans.submitted_at, ans.grading_status, ans.grading_error " +
             "FROM student_assignments sa " +

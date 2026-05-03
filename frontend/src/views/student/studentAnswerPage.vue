@@ -125,6 +125,7 @@ interface Assignment {
   assignment_id: number
   title: string
   content: string
+  total_score?: number
   course_name: string
   teacher_name: string
   assignment_created_at: string
@@ -316,6 +317,7 @@ onMounted(() => {
           <div class="section-header">
             <h3>📝 题目内容</h3>
           </div>
+          <div v-if="assignment.total_score" style="margin-bottom: 12px; color: #606266;">本次作业总分：{{ assignment.total_score }} 分</div>
           <div class="question-content markdown-body" v-html="renderMarkdown(questionContent)"></div>
         </div>
 

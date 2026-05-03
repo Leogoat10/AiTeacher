@@ -136,6 +136,8 @@ CREATE TABLE IF NOT EXISTS assignments (
     course_code   VARCHAR(50)                          NOT NULL COMMENT '发送到的课程代码',
     title         VARCHAR(255)                         NOT NULL COMMENT '题目标题',
     content       TEXT                                 NOT NULL COMMENT '题目内容',
+    total_score   INT                                  NULL COMMENT '题目总分',
+    question_structure_json LONGTEXT                   NULL COMMENT '结构化题目与分值JSON',
     send_batch_id VARCHAR(64)                          NULL COMMENT '发送批次ID',
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL COMMENT '发送时间',
     KEY idx_assignments_course (course_code),
@@ -319,6 +321,8 @@ CALL sp_add_col_if_missing('messages', 'raw_model_response', 'raw_model_response
 CALL sp_add_col_if_missing('messages', 'structured_status', 'structured_status VARCHAR(50) NULL COMMENT ''结构化处理状态''');
 
 CALL sp_add_col_if_missing('assignments', 'send_batch_id', 'send_batch_id VARCHAR(64) NULL COMMENT ''发送批次ID''');
+CALL sp_add_col_if_missing('assignments', 'total_score', 'total_score INT NULL COMMENT ''题目总分''');
+CALL sp_add_col_if_missing('assignments', 'question_structure_json', 'question_structure_json LONGTEXT NULL COMMENT ''结构化题目与分值JSON''');
 CALL sp_add_index_if_missing('assignments', 'idx_assignments_send_batch', 'INDEX idx_assignments_send_batch (send_batch_id)');
 
 CALL sp_add_col_if_missing('student_answers', 'grading_status', 'grading_status VARCHAR(20) DEFAULT ''PENDING'' NULL COMMENT ''判题状态：PENDING/RUNNING/SUCCESS/FAILED''');
@@ -459,3 +463,41 @@ CREATE TABLE IF NOT EXISTS assignment_analysis_snapshots (
         FOREIGN KEY (assignment_id) REFERENCES assignments (id)
             ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================
+-- 9) 本次“题目分值链路统一”数据库变更说明
+-- ============================================
+-- 本次只对 assignments 表追加了两个字段，不删除旧字段、不改历史主键外键：
+--
+-- 1. total_score
+--    - 类型：INT NULL
+--    - 作用：保存一次已下发作业的总分。
+--    - 用途：
+--      a) 学生端展示“本次作业总分”
+--      b) AI 判题时明确总分基准，避免模型自由设定总分
+--      c) 学情分析时可与 evaluation_json 一起做百分比归一化
+--
+-- 2. question_structure_json
+--    - 类型：LONGTEXT NULL
+--    - 作用：保存发送给学生时的结构化题目明细 JSON。
+--    - 典型内容：题干、题型、选项、答案、解析、每题 score、难度等。
+--    - 用途：
+--      a) 解决“多轮对话合并发送后只剩 Markdown、丢失分值结构”的问题
+--      b) 让 AI 判题能拿到每题分值，按统一标准输出 itemScores
+--      c) 为后续分题统计、错因分析、知识点定位提供结构化基础
+--
+-- 兼容策略：
+-- - 使用 sp_add_col_if_missing 追加字段，仅在字段不存在时执行 ALTER TABLE。
+-- - 因此可重复执行本 SQL，不会重复加列。
+-- - 历史 assignments 旧数据若没有这两个字段的值，仍可正常保留；只是旧作业无法自动享受完整分值链路。
+--
+-- 实际执行的兼容补丁语句就是：
+-- CALL sp_add_col_if_missing('assignments', 'total_score', 'total_score INT NULL COMMENT ''题目总分''');
+-- CALL sp_add_col_if_missing('assignments', 'question_structure_json', 'question_structure_json LONGTEXT NULL COMMENT ''结构化题目与分值JSON''');
+
+-- ============================================
+-- 10) assignments 表直接改表 SQL（可单独执行）
+-- ============================================
+ALTER TABLE `assignments`
+    ADD COLUMN `total_score` INT NULL COMMENT '题目总分' AFTER `content`,
+    ADD COLUMN `question_structure_json` LONGTEXT NULL COMMENT '结构化题目与分值JSON' AFTER `total_score`;

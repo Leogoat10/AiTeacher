@@ -29,6 +29,12 @@ public class AssignmentDto {
     private String title;
     private String content;
 
+    @TableField("total_score")
+    private Integer totalScore;
+
+    @TableField("question_structure_json")
+    private String questionStructureJson;
+
     @TableField("created_at")
     private LocalDateTime createdAt;
 }
