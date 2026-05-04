@@ -10,9 +10,10 @@ public interface StudentAnswerService {
      * @param assignmentId 题目ID
      * @param studentId 学生ID
      * @param studentAnswer 学生答案
+     * @param imageDataUrl 学生上传图片的DataURL（可选）
      * @return 包含评分和分析结果的Map
      */
-    Map<String, Object> submitAnswer(Integer assignmentId, Integer studentId, String studentAnswer);
+    Map<String, Object> submitAnswer(Integer assignmentId, Integer studentId, String studentAnswer, String imageDataUrl);
 
     /**
      * 查询当前学生某题目的判题状态

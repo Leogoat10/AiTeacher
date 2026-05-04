@@ -63,15 +63,19 @@ public class StudentController {
         }
         
         try {
-            Integer assignmentId = (Integer) requestData.get("assignmentId");
-            String answer = (String) requestData.get("answer");
+            Integer assignmentId = parseInteger(requestData.get("assignmentId"));
+            String answer = requestData.get("answer") == null ? "" : String.valueOf(requestData.get("answer"));
+            String imageDataUrl = requestData.get("imageDataUrl") == null ? null : String.valueOf(requestData.get("imageDataUrl"));
             
-            if (assignmentId == null || answer == null || answer.trim().isEmpty()) {
-                return ResponseEntity.badRequest().body("题目ID和答案不能为空");
+            if (assignmentId == null) {
+                return ResponseEntity.badRequest().body("题目ID不能为空");
+            }
+            if ((answer == null || answer.trim().isEmpty()) && (imageDataUrl == null || imageDataUrl.isBlank())) {
+                return ResponseEntity.badRequest().body("答案或图片不能为空");
             }
             
             logger.info("学生提交答案，studentId={}, assignmentId={}", student.getStudentId(), assignmentId);
-            Map<String, Object> result = studentAnswerService.submitAnswer(assignmentId, student.getStudentId(), answer);
+            Map<String, Object> result = studentAnswerService.submitAnswer(assignmentId, student.getStudentId(), answer, imageDataUrl);
             
             if (result.containsKey("success") && (Boolean) result.get("success")) {
                 return ResponseEntity.ok(result);
@@ -107,6 +111,23 @@ public class StudentController {
         } catch (Exception e) {
             logger.error("查询答题状态异常", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("查询答题状态失败: " + e.getMessage());
+        }
+    }
+
+    private Integer parseInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Integer intVal) {
+            return intVal;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
         }
     }
 }

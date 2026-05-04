@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { UploadProps, UploadUserFile } from 'element-plus'
 import axios from 'axios'
 import { useRouter, useRoute } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -134,6 +135,8 @@ interface Assignment {
 const assignment = ref<Assignment | null>(null)
 const loading = ref(false)
 const studentAnswer = ref('')
+const imageFileList = ref<UploadUserFile[]>([])
+const uploadedImageDataUrl = ref('')
 const submitting = ref(false)
 
 // 配置 marked
@@ -224,8 +227,8 @@ const loadAssignment = async () => {
 
 // 提交答案
 const submitAnswer = async () => {
-  if (!studentAnswer.value.trim()) {
-    ElMessage.warning('请输入答案')
+  if (!studentAnswer.value.trim() && !uploadedImageDataUrl.value) {
+    ElMessage.warning('请输入答案或上传答题图片')
     return
   }
 
@@ -252,7 +255,8 @@ const submitAnswer = async () => {
   try {
     const res = await apiClient.post('/student/submitAnswer', {
       assignmentId: assignment.value.assignment_id,
-      answer: studentAnswer.value
+      answer: studentAnswer.value,
+      imageDataUrl: uploadedImageDataUrl.value || null
     })
 
     if (res.data.success) {
@@ -278,6 +282,60 @@ const submitAnswer = async () => {
   } finally {
     submitting.value = false
   }
+}
+
+const validateImageFile = (file: File) => {
+  const isImage = file.type.startsWith('image/')
+  if (!isImage) {
+    ElMessage.error('仅支持上传图片文件')
+    return false
+  }
+  const isLt5M = file.size / 1024 / 1024 <= 5
+  if (!isLt5M) {
+    ElMessage.error('图片大小不能超过 5MB')
+    return false
+  }
+  return true
+}
+
+const beforeImageUpload: UploadProps['beforeUpload'] = (rawFile) => {
+  return validateImageFile(rawFile)
+}
+
+const readFileAsDataUrl = (file: File) => {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+const handleImageChange: UploadProps['onChange'] = async (uploadFile, uploadFiles) => {
+  imageFileList.value = uploadFiles.slice(-1).map((file) => ({
+    name: file.name,
+    url: file.url
+  }))
+  if (!uploadFile.raw) {
+    uploadedImageDataUrl.value = ''
+    return
+  }
+  if (!validateImageFile(uploadFile.raw)) {
+    imageFileList.value = []
+    uploadedImageDataUrl.value = ''
+    return
+  }
+  try {
+    uploadedImageDataUrl.value = await readFileAsDataUrl(uploadFile.raw)
+  } catch (_error) {
+    uploadedImageDataUrl.value = ''
+    ElMessage.error('图片读取失败，请重新选择')
+  }
+}
+
+const handleImageRemove: UploadProps['onRemove'] = () => {
+  imageFileList.value = []
+  uploadedImageDataUrl.value = ''
 }
 
 // 返回题目列表
@@ -337,6 +395,20 @@ onMounted(() => {
             show-word-limit
             class="answer-input"
           />
+          <div class="answer-image-upload">
+            <el-upload
+              v-model:file-list="imageFileList"
+              accept="image/*"
+              :auto-upload="false"
+              :limit="1"
+              :before-upload="beforeImageUpload"
+              :on-change="handleImageChange"
+              :on-remove="handleImageRemove"
+            >
+              <el-button type="primary" plain>上传答题图片（可选）</el-button>
+            </el-upload>
+            <div class="upload-hint">支持 jpg/png/webp，单张不超过 5MB。提交时将自动识别图片文字参与评分。</div>
+          </div>
         </div>
 
         <!-- 提示信息 -->
@@ -350,7 +422,7 @@ onMounted(() => {
             <template #default>
               <p>• 请认真作答，提交后将无法修改</p>
               <p>• AI会自动评分并给出详细的分析和建议</p>
-              <p>• 建议先在本地编辑器写好答案再粘贴提交</p>
+              <p>• 可仅上传答题图片，系统会自动识别文字后判题</p>
             </template>
           </el-alert>
         </div>
@@ -363,7 +435,7 @@ onMounted(() => {
             size="large"
             @click="submitAnswer"
             :loading="submitting"
-            :disabled="!studentAnswer.trim()"
+            :disabled="!studentAnswer.trim() && !uploadedImageDataUrl"
           >
             {{ submitting ? '提交中...' : '提交答案' }}
           </el-button>
@@ -451,6 +523,16 @@ onMounted(() => {
 
 .tips-section {
   margin: 30px 0;
+}
+
+.answer-image-upload {
+  margin-top: 14px;
+}
+
+.upload-hint {
+  margin-top: 8px;
+  color: #909399;
+  font-size: 13px;
 }
 
 .tips-section :deep(.el-alert__description) p {

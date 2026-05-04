@@ -1,5 +1,6 @@
 package com.leo.aiteacher.service.impl;
 
+import com.leo.aiteacher.client.QwenVisionClient;
 import com.leo.aiteacher.pojo.dto.AssignmentDto;
 import com.leo.aiteacher.pojo.dto.GradingTaskDto;
 import com.leo.aiteacher.pojo.dto.StudentAnswerDto;
@@ -35,7 +36,7 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
     private StudentGradingAsyncService studentGradingAsyncService;
     
     @Override
-    public Map<String, Object> submitAnswer(Integer assignmentId, Integer studentId, String studentAnswer) {
+    public Map<String, Object> submitAnswer(Integer assignmentId, Integer studentId, String studentAnswer, String imageDataUrl) {
         Map<String, Object> result = new HashMap<>();
         
         try {
@@ -52,11 +53,17 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
                 result.put("message", "已经提交过答案，不能重复提交");
                 return result;
             }
+            PreparedAnswer preparedAnswer = prepareAnswer(studentAnswer, imageDataUrl);
+            if (preparedAnswer.finalAnswer() == null || preparedAnswer.finalAnswer().isBlank()) {
+                result.put("success", false);
+                result.put("message", "图片未识别到文字，请补充文字答案或重新上传清晰图片");
+                return result;
+            }
 
             StudentAnswerDto studentAnswerDto = new StudentAnswerDto();
             studentAnswerDto.setAssignmentId(assignmentId);
             studentAnswerDto.setStudentId(studentId);
-            studentAnswerDto.setStudentAnswer(studentAnswer);
+            studentAnswerDto.setStudentAnswer(preparedAnswer.finalAnswer());
             studentAnswerDto.setAiScore(null);
             studentAnswerDto.setAiAnalysis(null);
             studentAnswerDto.setGradingStatus("PENDING");
@@ -79,6 +86,10 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
             result.put("answerId", studentAnswerDto.getId());
             result.put("gradingTaskId", gradingTask.getId());
             result.put("gradingStatus", "PENDING");
+            result.put("ocrApplied", preparedAnswer.ocrApplied());
+            if (preparedAnswer.detectedText() != null && !preparedAnswer.detectedText().isBlank()) {
+                result.put("ocrText", preparedAnswer.detectedText());
+            }
             
         } catch (Exception e) {
             logger.error("提交答案失败", e);
@@ -324,4 +335,42 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
         }
     }
     
+    @Autowired
+    private QwenVisionClient qwenVisionClient;
+
+    private PreparedAnswer prepareAnswer(String studentAnswer, String imageDataUrl) throws Exception {
+        String plainAnswer = studentAnswer == null ? "" : studentAnswer.trim();
+        String normalizedImageDataUrl = imageDataUrl == null ? "" : imageDataUrl.trim();
+
+        String detectedText = "";
+        boolean ocrApplied = false;
+        if (!normalizedImageDataUrl.isBlank()) {
+            validateImageDataUrl(normalizedImageDataUrl);
+            detectedText = qwenVisionClient.recognizeTextFromImageDataUrl(normalizedImageDataUrl).text();
+            ocrApplied = true;
+            logger.info("图片OCR识别完成，textLength={}", detectedText == null ? 0 : detectedText.length());
+        }
+
+        String finalAnswer;
+        if (!plainAnswer.isBlank() && detectedText != null && !detectedText.isBlank()) {
+            finalAnswer = "【学生文字作答】\n" + plainAnswer + "\n\n【图片识别文本】\n" + detectedText;
+        } else if (!plainAnswer.isBlank()) {
+            finalAnswer = plainAnswer;
+        } else if (detectedText != null && !detectedText.isBlank()) {
+            finalAnswer = "【图片识别文本】\n" + detectedText;
+        } else {
+            finalAnswer = "";
+        }
+        return new PreparedAnswer(finalAnswer, detectedText, ocrApplied);
+    }
+
+    private void validateImageDataUrl(String imageDataUrl) {
+        if (!imageDataUrl.startsWith("data:image/") || !imageDataUrl.contains(";base64,")) {
+            throw new RuntimeException("图片格式不正确，仅支持base64图片");
+        }
+    }
+
+    private record PreparedAnswer(String finalAnswer, String detectedText, boolean ocrApplied) {
+    }
+
 }
