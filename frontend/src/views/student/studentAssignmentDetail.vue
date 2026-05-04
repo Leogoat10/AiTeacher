@@ -556,7 +556,7 @@ onMounted(() => {
 }
 
 .score-badge {
-  background: linear-gradient(135deg, #e353c6 0%, #d7040f 100%);
+  background: linear-gradient(135deg, #ffd600 0%, #c05050 100%);
   color: white;
   font-size: 36px;
   font-weight: bold;

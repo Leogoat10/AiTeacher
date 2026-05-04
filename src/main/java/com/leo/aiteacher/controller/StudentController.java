@@ -89,6 +89,35 @@ public class StudentController {
     }
 
     /**
+     * 学生上传图片后，先进行OCR识别并回填答案框
+     * @param requestData 包含imageDataUrl
+     * @return OCR识别结果
+     */
+    @PostMapping("/ocrAnswerImage")
+    public ResponseEntity<?> ocrAnswerImage(@RequestBody Map<String, Object> requestData) {
+        StuDto student = SessionUtils.getCurrentStudent();
+        if (student == null) {
+            logger.warn("未登录或会话失效，无法进行图片识别");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("未登录或会话失效");
+        }
+
+        try {
+            String imageDataUrl = requestData.get("imageDataUrl") == null ? null : String.valueOf(requestData.get("imageDataUrl"));
+            if (imageDataUrl == null || imageDataUrl.isBlank()) {
+                return ResponseEntity.badRequest().body("图片不能为空");
+            }
+            Map<String, Object> result = studentAnswerService.recognizeAnswerImage(imageDataUrl);
+            if (result.containsKey("success") && (Boolean) result.get("success")) {
+                return ResponseEntity.ok(result);
+            }
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(result);
+        } catch (Exception e) {
+            logger.error("图片识别异常", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("图片识别失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 学生查询某个题目的判题状态
      * @param assignmentId 题目ID
      * @return 判题状态

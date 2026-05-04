@@ -483,7 +483,7 @@ onUnmounted(() => {
 .score-section {
   text-align: center;
   padding: 20px;
-  background: linear-gradient(135deg, #e353c6 0%, #d7040f 100%);
+  background: linear-gradient(135deg, #ffd600 0%, #c05050 100%);
   border-radius: 12px;
   color: white;
   margin-bottom: 20px;

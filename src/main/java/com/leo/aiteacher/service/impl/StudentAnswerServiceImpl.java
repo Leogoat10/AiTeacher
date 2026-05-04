@@ -101,6 +101,28 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
     }
 
     @Override
+    public Map<String, Object> recognizeAnswerImage(String imageDataUrl) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String ocrText = extractTextFromImage(imageDataUrl);
+            if (ocrText == null || ocrText.isBlank()) {
+                result.put("success", false);
+                result.put("message", "未识别到清晰文字，请重拍或手动输入");
+                return result;
+            }
+            result.put("success", true);
+            result.put("ocrText", ocrText);
+            result.put("message", "图片识别成功，请复核后再提交");
+            return result;
+        } catch (Exception e) {
+            logger.error("图片预识别失败", e);
+            result.put("success", false);
+            result.put("message", "图片识别失败: " + e.getMessage());
+            return result;
+        }
+    }
+
+    @Override
     public Map<String, Object> getAnswerStatus(Integer assignmentId, Integer studentId) {
         Map<String, Object> result = new HashMap<>();
 
@@ -344,17 +366,13 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
 
         String detectedText = "";
         boolean ocrApplied = false;
-        if (!normalizedImageDataUrl.isBlank()) {
-            validateImageDataUrl(normalizedImageDataUrl);
-            detectedText = qwenVisionClient.recognizeTextFromImageDataUrl(normalizedImageDataUrl).text();
+        if (plainAnswer.isBlank() && !normalizedImageDataUrl.isBlank()) {
+            detectedText = extractTextFromImage(normalizedImageDataUrl);
             ocrApplied = true;
-            logger.info("图片OCR识别完成，textLength={}", detectedText == null ? 0 : detectedText.length());
         }
 
         String finalAnswer;
-        if (!plainAnswer.isBlank() && detectedText != null && !detectedText.isBlank()) {
-            finalAnswer = "【学生文字作答】\n" + plainAnswer + "\n\n【图片识别文本】\n" + detectedText;
-        } else if (!plainAnswer.isBlank()) {
+        if (!plainAnswer.isBlank()) {
             finalAnswer = plainAnswer;
         } else if (detectedText != null && !detectedText.isBlank()) {
             finalAnswer = "【图片识别文本】\n" + detectedText;
@@ -362,6 +380,14 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
             finalAnswer = "";
         }
         return new PreparedAnswer(finalAnswer, detectedText, ocrApplied);
+    }
+
+    private String extractTextFromImage(String imageDataUrl) throws Exception {
+        String normalizedImageDataUrl = imageDataUrl == null ? "" : imageDataUrl.trim();
+        validateImageDataUrl(normalizedImageDataUrl);
+        String detectedText = qwenVisionClient.recognizeTextFromImageDataUrl(normalizedImageDataUrl).text();
+        logger.info("图片OCR识别完成，textLength={}", detectedText == null ? 0 : detectedText.length());
+        return detectedText;
     }
 
     private void validateImageDataUrl(String imageDataUrl) {

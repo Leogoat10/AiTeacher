@@ -137,6 +137,7 @@ const loading = ref(false)
 const studentAnswer = ref('')
 const imageFileList = ref<UploadUserFile[]>([])
 const uploadedImageDataUrl = ref('')
+const ocrRecognizing = ref(false)
 const submitting = ref(false)
 
 // 配置 marked
@@ -327,9 +328,21 @@ const handleImageChange: UploadProps['onChange'] = async (uploadFile, uploadFile
   }
   try {
     uploadedImageDataUrl.value = await readFileAsDataUrl(uploadFile.raw)
+    ocrRecognizing.value = true
+    const res = await apiClient.post('/student/ocrAnswerImage', {
+      imageDataUrl: uploadedImageDataUrl.value
+    })
+    if (res.data?.success && res.data?.ocrText) {
+      studentAnswer.value = String(res.data.ocrText)
+      ElMessage.success('图片识别完成，已回填到答案框，请复核后再提交')
+    } else {
+      ElMessage.warning(res.data?.message || '未识别到清晰文字，请手动补充')
+    }
   } catch (_error) {
     uploadedImageDataUrl.value = ''
-    ElMessage.error('图片读取失败，请重新选择')
+    ElMessage.error('图片识别失败，请重新上传或手动输入')
+  } finally {
+    ocrRecognizing.value = false
   }
 }
 
@@ -407,7 +420,8 @@ onMounted(() => {
             >
               <el-button type="primary" plain>上传答题图片（可选）</el-button>
             </el-upload>
-            <div class="upload-hint">支持 jpg/png/webp，单张不超过 5MB。提交时将自动识别图片文字参与评分。</div>
+            <div v-if="ocrRecognizing" class="upload-hint">正在识别图片文字，请稍候...</div>
+            <div v-else class="upload-hint">支持 jpg/png/webp，单张不超过 5MB。上传后会自动识别并回填到答案框。</div>
           </div>
         </div>
 
@@ -422,7 +436,7 @@ onMounted(() => {
             <template #default>
               <p>• 请认真作答，提交后将无法修改</p>
               <p>• AI会自动评分并给出详细的分析和建议</p>
-              <p>• 可仅上传答题图片，系统会自动识别文字后判题</p>
+              <p>• 上传图片后会先识别并填入答案框，请务必复核修改再提交</p>
             </template>
           </el-alert>
         </div>
@@ -435,7 +449,7 @@ onMounted(() => {
             size="large"
             @click="submitAnswer"
             :loading="submitting"
-            :disabled="!studentAnswer.trim() && !uploadedImageDataUrl"
+            :disabled="ocrRecognizing || (!studentAnswer.trim() && !uploadedImageDataUrl)"
           >
             {{ submitting ? '提交中...' : '提交答案' }}
           </el-button>

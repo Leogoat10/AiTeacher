@@ -16,6 +16,13 @@ public interface StudentAnswerService {
     Map<String, Object> submitAnswer(Integer assignmentId, Integer studentId, String studentAnswer, String imageDataUrl);
 
     /**
+     * 学生上传图片后先识别文字，供提交前复核修改
+     * @param imageDataUrl 图片DataURL
+     * @return 识别结果
+     */
+    Map<String, Object> recognizeAnswerImage(String imageDataUrl);
+
+    /**
      * 查询当前学生某题目的判题状态
      * @param assignmentId 题目ID
      * @param studentId 学生ID
