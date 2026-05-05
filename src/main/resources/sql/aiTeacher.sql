@@ -358,8 +358,7 @@ CREATE TABLE IF NOT EXISTS assignment_analysis_snapshots (
         FOREIGN KEY (assignment_id) REFERENCES assignments (id)
             ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
- -- 创建索引
--- ============================================
+
 -- 6) 基础初始化数据
 -- ============================================
 INSERT INTO lesson_plan_prompt_presets (teacher_id, title, prompt_content, is_system_default)
