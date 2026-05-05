@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import teacherLogin from "../views/teacher/login.vue";
 import teacherPlan from "../views/teacher/plan.vue";
+import teacherPaper from "../views/teacher/paper.vue";
 import TeacherQuestion from "../views/teacher/TeacherQuestion.vue";
 import welcome from "../views/welcome.vue";
 import teacherInfo from "../views/teacher/teacherInfo.vue";
@@ -36,6 +37,11 @@ const routes = [
         path: '/teacherPlan',
         name: 'teacherPlan',
         component: teacherPlan
+    },
+    {
+        path: '/teacherPaper',
+        name: 'teacherPaper',
+        component: teacherPaper
     },
     {
         path: '/TeacherQuestion',

@@ -22,6 +22,7 @@
     { label: '课程管理', path: '/teacherCourses', icon: '📚' },
     { label: 'AI出题', path: '/TeacherQuestion', icon: '✍️' },
     { label: 'AI教案', path: '/teacherPlan', icon: '📝' },
+    { label: 'AI试卷', path: '/teacherPaper', icon: '📄' },
     { label: '答题管理', path: '/answerManagement', icon: '📊' },
     { label: '学情分析', path: '/learningAnalysis', icon: '📈' },
   ]

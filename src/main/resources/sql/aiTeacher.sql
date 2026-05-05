@@ -392,3 +392,108 @@ WHERE NOT EXISTS (
     SELECT 1 FROM lesson_plan_prompt_presets
     WHERE is_system_default = 1 AND title = '考试导向巩固版'
 );
+
+-- ============================================
+-- 7) AI 试卷
+-- ============================================
+CREATE TABLE IF NOT EXISTS exam_paper_tasks (
+    id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id         INT                                 NOT NULL COMMENT '教师ID',
+    status             VARCHAR(20)                         NOT NULL COMMENT '任务状态：PENDING/RUNNING/SUCCESS/FAILED',
+    subject            VARCHAR(100)                        NOT NULL COMMENT '科目',
+    grade              VARCHAR(100)                        NOT NULL COMMENT '年级',
+    exam_type          VARCHAR(100)                        NOT NULL COMMENT '试卷类型',
+    duration_minutes   INT                                 NOT NULL COMMENT '考试时长(分钟)',
+    total_score        INT                                 NOT NULL COMMENT '总分',
+    question_count     INT                                 NOT NULL COMMENT '题量',
+    difficulty         VARCHAR(50)                         NOT NULL COMMENT '难度',
+    knowledge_points   VARCHAR(500)                        NULL COMMENT '知识点',
+    custom_requirement TEXT                                NULL COMMENT '补充要求',
+    request_prompt     LONGTEXT                            NULL COMMENT '生成请求Prompt',
+    raw_response       LONGTEXT                            NULL COMMENT '模型原始响应',
+    result_json        LONGTEXT                            NULL COMMENT '结构化结果(JSON)',
+    error_message      VARCHAR(500)                        NULL COMMENT '失败原因',
+    created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP NULL,
+    updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+    completed_at       TIMESTAMP                           NULL,
+    KEY idx_ept_teacher (teacher_id),
+    KEY idx_ept_status (status),
+    CONSTRAINT fk_ept_teacher
+        FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id)
+            ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS exam_papers (
+    id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id          BIGINT                               NULL COMMENT '来源任务ID',
+    teacher_id       INT                                  NOT NULL COMMENT '教师ID',
+    title            VARCHAR(255)                         NOT NULL COMMENT '试卷标题',
+    subject          VARCHAR(100)                         NOT NULL COMMENT '科目',
+    grade            VARCHAR(100)                         NOT NULL COMMENT '年级',
+    exam_type        VARCHAR(100)                         NOT NULL COMMENT '试卷类型',
+    duration_minutes INT                                  NOT NULL COMMENT '考试时长(分钟)',
+    total_score      INT                                  NOT NULL COMMENT '总分',
+    question_count   INT                                  NOT NULL COMMENT '题量',
+    difficulty       VARCHAR(50)                          NOT NULL COMMENT '难度',
+    knowledge_points VARCHAR(500)                         NULL COMMENT '知识点',
+    summary          TEXT                                 NULL COMMENT '试卷说明',
+    structure_json   LONGTEXT                             NULL COMMENT '结构化试卷(JSON)',
+    markdown_content LONGTEXT                             NULL COMMENT '试卷Markdown内容',
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL,
+    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP  NULL ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_ep_teacher (teacher_id),
+    KEY idx_ep_task (task_id),
+    CONSTRAINT fk_ep_teacher
+        FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id)
+            ON DELETE CASCADE,
+    CONSTRAINT fk_ep_task
+        FOREIGN KEY (task_id) REFERENCES exam_paper_tasks (id)
+            ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS exam_paper_prompt_presets (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    teacher_id        INT                                 NULL COMMENT '创建教师ID，系统默认预设为空',
+    title             VARCHAR(100)                        NOT NULL COMMENT '预设名称',
+    prompt_content    TEXT                                NOT NULL COMMENT '预设Prompt内容',
+    is_system_default TINYINT(1) DEFAULT 0                NOT NULL COMMENT '是否系统默认预设',
+    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP NULL,
+    updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_eppp_teacher (teacher_id),
+    KEY idx_eppp_system_default (is_system_default),
+    CONSTRAINT fk_eppp_teacher
+        FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id)
+            ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO exam_paper_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+SELECT NULL, '公式表达加强版', '若题目涉及数学表达，请优先使用 LaTeX 形式输出关键公式，并保证变量定义清晰。', 1
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM exam_paper_prompt_presets
+    WHERE is_system_default = 1 AND title = '公式表达加强版'
+);
+
+INSERT INTO exam_paper_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+SELECT NULL, '分层梯度优化版', '题目难度按基础:提升:综合约 5:3:2 分配，每类题目都要有代表性。', 1
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM exam_paper_prompt_presets
+    WHERE is_system_default = 1 AND title = '分层梯度优化版'
+);
+
+INSERT INTO exam_paper_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+SELECT NULL, '情境应用导向版', '优先设计贴近真实生活或学科情境的问题，提高迁移与应用能力考查。', 1
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM exam_paper_prompt_presets
+    WHERE is_system_default = 1 AND title = '情境应用导向版'
+);
+
+INSERT INTO exam_paper_prompt_presets (teacher_id, title, prompt_content, is_system_default)
+SELECT NULL, '错因诊断强化版', '解析中要指出常见错误思路，并给出针对性纠正建议。', 1
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM exam_paper_prompt_presets
+    WHERE is_system_default = 1 AND title = '错因诊断强化版'
+);
