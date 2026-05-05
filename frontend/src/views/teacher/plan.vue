@@ -113,6 +113,7 @@ const renderMarkdown = (content: string): string => {
 const subject = ref('')
 const grade = ref<string | string[]>('')
 const teachingTopic = ref('')
+const textbookVersion = ref('')
 const durationMinutes = ref(45)
 const interactionCount = ref(3)
 const customRequirement = ref('')
@@ -594,6 +595,10 @@ const send = async () => {
       ElMessage.warning('请输入课题')
       return
     }
+    if (!textbookVersion.value.trim()) {
+      ElMessage.warning('请输入教材版本')
+      return
+    }
   }
 
   if (!currentConversationId.value) {
@@ -603,7 +608,7 @@ const send = async () => {
 
   const userMessage = useRecentContext.value
     ? `上下文增量指令：${contextInstruction.value.trim()} [关联最近${CONTEXT_ROUNDS}轮上下文]`
-    : `${subject.value} ${normalizedGrade.value} ${teachingTopic.value} (${durationMinutes.value}分钟, 互动${interactionCount.value}个)`
+    : `${subject.value} ${normalizedGrade.value} ${teachingTopic.value} [${textbookVersion.value}] (${durationMinutes.value}分钟, 互动${interactionCount.value}个)`
   chatHistory.value.push({ role: 'user', content: userMessage, timestamp: new Date(), id: messageIdCounter++ })
 
   loading.value = true
@@ -614,6 +619,7 @@ const send = async () => {
       subject: useRecentContext.value ? null : subject.value.trim(),
       grade: useRecentContext.value ? null : normalizedGrade.value.trim(),
       teachingTopic: useRecentContext.value ? null : teachingTopic.value.trim(),
+      textbookVersion: useRecentContext.value ? null : textbookVersion.value.trim(),
       durationMinutes: useRecentContext.value ? null : durationMinutes.value,
       interactionCount: useRecentContext.value ? null : interactionCount.value,
       customRequirement: useRecentContext.value ? contextInstruction.value.trim() : (customRequirement.value.trim() || null),
@@ -716,6 +722,9 @@ onMounted(async () => {
           </el-form-item>
           <el-form-item label="课题">
             <el-input v-model="teachingTopic" placeholder="例如：一元一次方程应用" :disabled="loading" />
+          </el-form-item>
+          <el-form-item label="教材版本">
+            <el-input v-model="textbookVersion" placeholder="例如：人教版" :disabled="loading" />
           </el-form-item>
 
           <div class="number-grid">

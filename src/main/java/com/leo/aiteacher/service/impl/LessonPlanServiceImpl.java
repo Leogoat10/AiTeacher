@@ -350,7 +350,7 @@ public class LessonPlanServiceImpl implements LessonPlanService {
     }
 
     @Override
-    public Map<String, Object> createLessonPlanTask(String subject, String grade, String teachingTopic, Integer durationMinutes,
+    public Map<String, Object> createLessonPlanTask(String subject, String grade, String teachingTopic, String textbookVersion, Integer durationMinutes,
                                                     Integer interactionCount, String customRequirement, Integer conversationId,
                                                     Boolean useContext, Integer contextRounds) {
         ensureLessonPlanTaskSchema();
@@ -402,6 +402,7 @@ public class LessonPlanServiceImpl implements LessonPlanService {
         String normalizedSubject = normalizeText(subject);
         String normalizedGrade = normalizeText(grade);
         String normalizedTeachingTopic = normalizeText(teachingTopic);
+        String normalizedTextbookVersion = normalizeText(textbookVersion);
         String normalizedRequirement = normalizeText(customRequirement);
         int normalizedDuration = durationMinutes == null ? DEFAULT_DURATION_MINUTES : durationMinutes;
         int normalizedInteractionCount = interactionCount == null ? DEFAULT_INTERACTION_COUNT : interactionCount;
@@ -447,7 +448,7 @@ public class LessonPlanServiceImpl implements LessonPlanService {
             conversationMapper.updateById(toUpdate);
         }
 
-        String prompt = buildPrompt(normalizedSubject, normalizedGrade, normalizedTeachingTopic,
+        String prompt = buildPrompt(normalizedSubject, normalizedGrade, normalizedTeachingTopic, normalizedTextbookVersion,
                 normalizedDuration, normalizedInteractionCount, normalizedRequirement,
                 enableContext, actualContextRounds, recentContextSummary);
 
@@ -983,29 +984,42 @@ public class LessonPlanServiceImpl implements LessonPlanService {
         }
     }
 
-    private String buildPrompt(String subject, String grade, String teachingTopic, int durationMinutes,
+    private String buildPrompt(String subject, String grade, String teachingTopic, String textbookVersion, int durationMinutes,
                                int interactionCount, String customRequirement, boolean useContext,
                                int contextRounds, String recentContextSummary) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("【Initialization】\n")
-                .append("你是智能教师备课助手，职责是帮助教师基于少量课程信息自动生成完整、可执行、可直接上课使用的教案，降低备课成本并提升效率。\n")
-                .append("你需要体现以下能力：教案编写、三维目标制定、教学过程设计、差异化支持、资源整合、时长分配、语言层次适配。\n")
-                .append("请在本次输出中严格执行“先收集需求再产出教案”的工作思路，但当前系统已完成信息收集，你可直接进入生成步骤。\n\n")
-                .append("【Workflow兼容说明（与当前系统字段对齐）】\n")
-                .append("当前系统已提供标准化输入，等价于第一步教师反馈：\n")
-                .append("1) 课程名称 -> teachingTopic\n")
-                .append("2) 教学对象层级 -> grade\n")
-                .append("3) 学科 -> subject\n")
-                .append("4) 特别要求/风格偏好 -> customRequirement\n")
-                .append("5) 课时长度 -> durationMinutes\n")
-                .append("6) 互动数量下限 -> interactionCount\n")
-                .append("你无需再追问，直接按上述信息生成完整教案。\n\n")
-                .append("【输入参数】\n")
+        prompt.append("【角色设定】\n")
+                .append("你是一位拥有20年教龄的").append(subject).append("特级教师，曾多次获得省级教学竞赛一等奖。")
+                .append("你擅长设计“以学生为中心”的精品课教案，特别注重逻辑闭环、高阶思维引导和学科核心素养的落地。\n\n")
+                .append("【任务目标】\n")
+                .append("请为我生成一份完整的、可直接用于公开课或教学比赛的“").append(teachingTopic).append("”详细教案，教案中尽量不要使用过多分点，如有必要将分点改为1.2.3.数字分点。\n\n")
+                .append("【硬性要求】\n")
+                .append("这份教案必须具备以下特征，缺一不可：\n")
+                .append("1. 完整性：必须包含教材分析、学情分析、教学目标（三维或核心素养）、重难点、教学准备、详细教学过程（含教师活动、学生活动、设计意图）、板书设计、作业设计、教学反思等全部模块。\n")
+                .append("2. 逻辑闭环：从导入到小结，要有一条清晰的问题链或情境线贯穿始终，结尾必须回扣开头，形成“总-分-总”的认知闭环。\n")
+                .append("3. 可视化：在教学过程中，需要详细写出教师关键引导语和过渡语，并预设学生3种可能回答及教师对应理答（答对如何追问深化、答错如何纠偏）。\n")
+                .append("4. 分层设计：在练习和作业环节，必须体现基础巩固、拓展提升两个层次，并注明对应哪类学情学生。\n\n")
+                .append("【教案结构框架】\n")
+                .append("请严格按照以下结构填充内容，越详细越好：\n")
+                .append("一、教材分析：教材版本、单元位置、本课在知识体系中的地位（承前启后作用）。\n")
+                .append("二、学情分析：已有知识储备、可能学习困难（认知痛点）、针对痛点的破解策略。\n")
+                .append("三、教学目标：按知识技能/过程方法/情感态度价值观或核心素养维度书写，使用可测动词（如能复述、能辨析、会运用）。\n")
+                .append("四、教学重难点：重点为核心知识点；难点为最易混淆处并说明原因。\n")
+                .append("五、教学准备：教师准备（课件、器材、模型等）与学生准备（预习、学具等）。\n")
+                .append("六、教学过程（核心）：每个环节写明教师活动、学生活动、设计意图。\n")
+                .append("  - 环节一：情境导入（X分钟），通过具体例子/实验创设认知冲突，提出具体问题。\n")
+                .append("  - 环节二：新知探究（X分钟），分步骤推进，设置合作探究/实验/讨论，包含关键追问与预设理答。\n")
+                .append("  - 环节三：巩固应用（X分钟），含分层练习：基础题（全员）与拓展题（学优生）。\n")
+                .append("  - 环节四：小结升华（X分钟），引导自主总结并回扣导入问题，形成闭环。\n")
+                .append("七、板书设计：用文字或符号图示呈现结构与知识关联。\n")
+                .append("八、作业设计：必做作业（巩固类）与选做作业（实践/探究类）。\n")
+                .append("九、教学反思（预写）：设计亮点、需留意的生成点及预案。\n\n")
+                .append("【基本信息】\n")
                 .append("- 科目：").append(subject).append("\n")
                 .append("- 年级：").append(grade).append("\n")
                 .append("- 课题：").append(teachingTopic).append("\n")
-                .append("- 课时总时长：").append(durationMinutes).append("分钟\n")
-                .append("- 互动环节至少：").append(interactionCount).append("个\n");
+                .append("- 课时：1课时（").append(durationMinutes).append("分钟）\n")
+                .append("- 教材版本：").append(isBlank(textbookVersion) ? "未指定（请结合该学段常用版本合理生成）" : textbookVersion).append("\n");
         if (customRequirement != null && !customRequirement.isBlank()) {
             prompt.append("- 教师补充要求：").append(customRequirement).append("\n");
         } else {
@@ -1019,24 +1033,11 @@ public class LessonPlanServiceImpl implements LessonPlanService {
             prompt.append(recentContextSummary).append("\n");
         }
         prompt.append("\n【生成要求】\n")
-                .append("一、教学目标\n")
-                .append("- 必须覆盖重点、难点、易错点。\n")
-                .append("- objectives 字段需体现三维目标：知识与技能、过程与方法、情感态度与价值观。\n")
-                .append("- 需给出与真实生活的联系建议。\n")
-                .append("二、教学流程设计\n")
-                .append("- 导入环节提供2-3种趣味导入方案（如情境模拟/问题驱动/多媒体建议）。\n")
-                .append("- 新知讲解要体现类比、可视化、探究式等策略分解难点。\n")
-                .append("- 互动设计需写明分组建议与时长。\n")
-                .append("- 总结与迁移需包含可执行做法（如思维导图、自评量表）。\n")
-                .append("三、差异化教学支持\n")
-                .append("- 包含学困生简化方案、资优生拓展任务、特殊教育需求调整建议。\n")
-                .append("四、评估与反馈\n")
-                .append("- assessment 中给出课堂即时检测题（选择题+开放题）与常见误解纠正策略。\n")
-                .append("- homework 中给出分层作业（基础/提升/挑战三级）。\n")
-                .append("五、风格与表达\n")
-                .append("- 语言适配该年级认知水平，避免空泛口号。\n")
-                .append("- 时长分配合理，teachingProcess 的 durationMinutes 总和应接近总课时。\n")
-                .append("- 必须保证至少 ").append(interactionCount).append(" 个有效互动环节。\n\n")
+                .append("1) 教学过程必须细化到可直接上课执行，体现教师关键引导语、过渡语和理答策略。\n")
+                .append("2) 练习与作业必须分层设计，明确对应学生层次。\n")
+                .append("3) 全文保持学科严谨性、可操作性、公开课展示性。\n")
+                .append("4) 时长分配合理，teachingProcess 的 durationMinutes 总和应接近总课时，并至少包含 ")
+                .append(interactionCount).append(" 个有效互动环节。\n\n")
                 .append("【输出格式约束】\n")
                 .append("请严格只输出JSON，不要包含任何额外解释，不要使用Markdown代码块。\n")
                 .append("字段名必须完全一致，JSON结构如下：\n")

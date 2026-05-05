@@ -156,6 +156,7 @@ public class LessonPlanController {
             String subject = stringValue(requestData.get("subject"));
             String grade = stringValue(requestData.get("grade"));
             String teachingTopic = stringValue(requestData.get("teachingTopic"));
+            String textbookVersion = stringValue(requestData.get("textbookVersion"));
             Integer durationMinutes = parseOptionalInteger(requestData.get("durationMinutes"));
             Integer interactionCount = parseOptionalInteger(requestData.get("interactionCount"));
             String customRequirement = stringValue(requestData.get("customRequirement"));
@@ -164,7 +165,7 @@ public class LessonPlanController {
             Integer contextRounds = parseOptionalInteger(requestData.get("contextRounds"));
 
             Map<String, Object> result = lessonPlanService.createLessonPlanTask(
-                    subject, grade, teachingTopic, durationMinutes, interactionCount, customRequirement,
+                    subject, grade, teachingTopic, textbookVersion, durationMinutes, interactionCount, customRequirement,
                     conversationId, useContext, contextRounds
             );
             if (Boolean.TRUE.equals(result.get("success"))) {

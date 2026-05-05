@@ -16,7 +16,7 @@ public interface LessonPlanService {
 
     Map<String, Object> deletePresetPrompt(Long presetId);
 
-    Map<String, Object> createLessonPlanTask(String subject, String grade, String teachingTopic,
+    Map<String, Object> createLessonPlanTask(String subject, String grade, String teachingTopic, String textbookVersion,
                                              Integer durationMinutes, Integer interactionCount,
                                              String customRequirement, Integer conversationId,
                                              Boolean useContext, Integer contextRounds);
