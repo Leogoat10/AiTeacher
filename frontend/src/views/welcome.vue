@@ -3,7 +3,7 @@
     <div class="main-container">
       <div class="logo">
         <div class="logo-icon-wrapper">
-          <i class="fas fa-brain logo-icon"></i>
+          <el-icon class="logo-icon"><DataAnalysis /></el-icon>
         </div>
       </div>
 
@@ -19,12 +19,12 @@
         <div class="card role-card student-card">
           <div class="card-body text-center">
             <div class="role-icon-wrapper">
-              <i class="fas fa-user-graduate role-icon text-primary"></i>
+              <el-icon class="role-icon text-primary"><User /></el-icon>
             </div>
-            <h5 class="card-title"><i class="fas fa-graduation-cap title-icon"></i> 学生</h5>
+            <h5 class="card-title"><el-icon class="title-icon"><User /></el-icon> 学生</h5>
             <p class="card-text">进入学生登录页面</p>
             <el-button type="primary" class="btn-role btn-student" @click="navigateTo('/studentLogin')">
-              进入 <i class="fas fa-arrow-right"></i>
+              进入 <el-icon class="arrow-icon"><ArrowRight /></el-icon>
             </el-button>
           </div>
         </div>
@@ -32,12 +32,12 @@
         <div class="card role-card teacher-card">
           <div class="card-body text-center">
             <div class="role-icon-wrapper">
-              <i class="fas fa-chalkboard-user role-icon text-success"></i>
+              <el-icon class="role-icon text-success"><UserFilled /></el-icon>
             </div>
-            <h5 class="card-title"><i class="fas fa-chalkboard title-icon"></i> 教师</h5>
+            <h5 class="card-title"><el-icon class="title-icon"><UserFilled /></el-icon> 教师</h5>
             <p class="card-text">进入教师登录页面</p>
             <el-button type="success" class="btn-role btn-teacher" @click="navigateTo('/teacherLogin')">
-              进入 <i class="fas fa-arrow-right"></i>
+              进入 <el-icon class="arrow-icon"><ArrowRight /></el-icon>
             </el-button>
           </div>
         </div>
@@ -48,7 +48,8 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { ElButton } from 'element-plus'
+import { ElButton, ElIcon } from 'element-plus'
+import { ArrowRight, DataAnalysis, User, UserFilled } from '@element-plus/icons-vue'
 
 const router = useRouter()
 
@@ -263,12 +264,13 @@ const navigateTo = (path: string) => {
   font-weight: 600;
   transition: transform 0.22s, box-shadow 0.22s;
 }
-.btn-role i {
+.arrow-icon {
   margin-left: 6px;
-  font-size: 0.8rem;
+  font-size: 0.95rem;
+  display: inline-block;
   transition: transform 0.2s;
 }
-.btn-role:hover i {
+.btn-role:hover .arrow-icon {
   transform: translateX(4px);
 }
 .btn-role:hover {

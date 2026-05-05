@@ -43,6 +43,15 @@ const importLoading = ref(false)
 const importError = ref<string | null>(null)
 const importResult = ref<string | null>(null)
 
+// 单独新增学生相关
+const showAddStudentDialog = ref(false)
+const courseToAddStudent = ref<Course | null>(null)
+const newStudentId = ref('')
+const newStudentName = ref('')
+const addStudentLoading = ref(false)
+const addStudentError = ref<string | null>(null)
+const addStudentResult = ref<string | null>(null)
+
 // 新增：课程学生列表弹窗状态
 const showStudentsDialog = ref(false)
 const studentsLoading = ref(false)
@@ -240,6 +249,57 @@ function closeImport() {
   courseToImport.value = null
   selectedFile.value = null
 }
+
+function openAddStudent(c: Course) {
+  courseToAddStudent.value = c
+  newStudentId.value = ''
+  newStudentName.value = ''
+  addStudentError.value = null
+  addStudentResult.value = null
+  showAddStudentDialog.value = true
+}
+
+function closeAddStudent() {
+  showAddStudentDialog.value = false
+  courseToAddStudent.value = null
+}
+
+async function submitAddStudent() {
+  if (!courseToAddStudent.value) return
+  if (!newStudentId.value.trim() || !newStudentName.value.trim()) {
+    addStudentError.value = '请填写学号和姓名'
+    return
+  }
+
+  const parsedId = Number(newStudentId.value.trim())
+  if (!Number.isInteger(parsedId) || parsedId <= 0) {
+    addStudentError.value = '学号必须为正整数'
+    return
+  }
+
+  addStudentLoading.value = true
+  addStudentError.value = null
+  addStudentResult.value = null
+  try {
+    const res = await apiClient.post('/course/addStudent', {
+      courseCode: courseToAddStudent.value.courseCode,
+      studentId: parsedId,
+      studentName: newStudentName.value.trim()
+    })
+    addStudentResult.value = typeof res.data === 'string' ? res.data : '新增成功'
+    await loadCourses()
+  } catch (err: any) {
+    if (err.response && err.response.data) {
+      addStudentError.value = typeof err.response.data === 'string' ? err.response.data : '新增失败'
+    } else if (err.response) {
+      addStudentError.value = '服务器错误: ' + err.response.status
+    } else {
+      addStudentError.value = '网络或服务器无法访问'
+    }
+  } finally {
+    addStudentLoading.value = false
+  }
+}
 onMounted(() => {
   loadCourses()
 })
@@ -282,6 +342,40 @@ onMounted(() => {
           <button class="btn-secondary" @click="closeImport">取消</button>
           <button class="btn-primary" :disabled="importLoading" @click="submitImport">
             {{ importLoading ? '导入中...' : '开始导入' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 单独新增学生对话框 -->
+    <div v-if="showAddStudentDialog" class="add-form-overlay" @click.self="closeAddStudent">
+      <div class="add-form-modal" @click.stop>
+        <div class="modal-header">
+          <h2>单独新增学生</h2>
+          <button class="close-btn" @click="closeAddStudent">×</button>
+        </div>
+        <div class="modal-body">
+          <p>课程：<strong>{{ courseToAddStudent?.courseName }}</strong>（{{ courseToAddStudent?.courseCode }}）</p>
+          <div class="form-group">
+            <label for="studentId">学号</label>
+            <input id="studentId" v-model="newStudentId" class="form-input" placeholder="请输入学号（正整数）" />
+          </div>
+          <div class="form-group">
+            <label for="studentName">姓名</label>
+            <input id="studentName" v-model="newStudentName" class="form-input" placeholder="请输入学生姓名" />
+          </div>
+          <div v-if="addStudentError" class="error-message">
+            <i class="icon-error"></i>
+            {{ addStudentError }}
+          </div>
+          <div v-if="addStudentResult" style="margin-top:8px;color:#2f855a;">
+            {{ addStudentResult }}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closeAddStudent">取消</button>
+          <button class="btn-primary" :disabled="addStudentLoading" @click="submitAddStudent">
+            {{ addStudentLoading ? '新增中...' : '确认新增' }}
           </button>
         </div>
       </div>
@@ -437,6 +531,9 @@ onMounted(() => {
               <td><span class="course-code">{{ c.courseCode }}</span></td>
               <td>
                 <div class="action-buttons">
+                  <button class="btn-icon btn-add" @click="openAddStudent(c)" title="单独新增学生">
+                    <i class="icon-plus"></i>
+                  </button>
                   <button class="btn-icon btn-edit" @click="openImport(c)">
                     <i class="icon-edit"></i>
                   </button>
@@ -655,6 +752,16 @@ onMounted(() => {
   color: #3182ce;
 }
 
+.btn-add {
+  background-color: #f0fff4;
+  color: #2f855a;
+}
+
+.btn-add:hover {
+  background-color: #c6f6d5;
+  transform: translateY(-1px);
+}
+
 .btn-edit:hover {
   background-color: #bee3f8;
   transform: translateY(-1px);
@@ -683,6 +790,27 @@ onMounted(() => {
 .icon-course::before,
 .icon-warning::before {
   content: "★"; /* 实际项目中应使用真正的图标字体或SVG */
+}
+
+.btn-add .icon-plus::before {
+  content: "+";
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.btn-edit .icon-edit::before {
+  content: "↑";
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.btn-delete .icon-delete::before {
+  content: "×";
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 /* 添加课程表单样式 */

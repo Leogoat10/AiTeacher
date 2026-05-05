@@ -5,6 +5,7 @@ import com.leo.aiteacher.pojo.dto.ImportResult;
 import com.leo.aiteacher.pojo.dto.StuDto;
 import com.leo.aiteacher.pojo.dto.TeacherDto;
 import com.leo.aiteacher.pojo.mapper.CourseMapper;
+import com.leo.aiteacher.pojo.mapper.CourseStudentMapper;
 import com.leo.aiteacher.pojo.mapper.StudentMapper;
 import com.leo.aiteacher.service.CourseService;
 import com.leo.aiteacher.service.StudentImportService;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 
 @CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
 @RestController
@@ -37,6 +39,8 @@ public class CourseController {
 
     @Autowired
     private StudentMapper studentMapper;
+    @Autowired
+    private CourseStudentMapper courseStudentMapper;
 
     /**
      * 获取当前登录教师的课程列表
@@ -145,6 +149,75 @@ public class CourseController {
         }
         List<StuDto> list = studentMapper.listByCourseCode(courseCode);
         return ResponseEntity.ok(list);
+    }
+
+    /**
+     * 单独新增学生到课程
+     * @param payload 包含 courseCode、studentId、studentName
+     * @return 新增结果
+     */
+    @PostMapping("/addStudent")
+    public ResponseEntity<?> addStudentToCourse(@RequestBody Map<String, Object> payload) {
+        TeacherDto teacher = SessionUtils.getCurrentTeacher();
+        if (teacher == null) {
+            logger.info("未登录或会话失效，无法新增学生");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("未登录或会话失效");
+        }
+
+        String courseCode = payload.get("courseCode") == null ? null : String.valueOf(payload.get("courseCode")).trim();
+        String studentName = payload.get("studentName") == null ? null : String.valueOf(payload.get("studentName")).trim();
+        Integer studentId = parseInteger(payload.get("studentId"));
+
+        if (courseCode == null || courseCode.isEmpty()) {
+            return ResponseEntity.badRequest().body("课程代码不能为空");
+        }
+        if (studentId == null) {
+            return ResponseEntity.badRequest().body("学号不能为空或格式错误");
+        }
+        if (studentName == null || studentName.isEmpty()) {
+            return ResponseEntity.badRequest().body("学生姓名不能为空");
+        }
+
+        Integer owned = courseMapper.countByCourseCodeAndTeacherId(courseCode, teacher.getTeacherId());
+        if (owned == null || owned == 0) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("课程不存在或无权限");
+        }
+
+        try {
+            StuDto exist = studentMapper.getStudentById(studentId);
+            if (exist == null) {
+                StuDto s = new StuDto();
+                s.setStudentId(studentId);
+                s.setStudentName(studentName);
+                s.setPassword("123456");
+                studentMapper.insertStudent(s);
+            }
+            int affected = courseStudentMapper.insertIgnore(courseCode, studentId);
+            if (affected > 0) {
+                return ResponseEntity.ok("学生已加入课程");
+            }
+            return ResponseEntity.ok("该学生已在当前课程中");
+        } catch (Exception e) {
+            logger.error("单独新增学生失败，courseCode={}, studentId={}", courseCode, studentId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("新增学生失败: " + e.getMessage());
+        }
+    }
+
+    private Integer parseInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Integer intVal) {
+            return intVal;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
 }

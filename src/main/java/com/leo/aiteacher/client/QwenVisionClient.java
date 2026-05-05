@@ -28,7 +28,7 @@ public class QwenVisionClient {
     @Value("${qwen.api.url}")
     private String apiUrl;
 
-    @Value("${qwen.api.key:}")
+    @Value("${qwen.api.key}")
     private String apiKey;
 
     @Value("${qwen.api.model:qwen3.6-flash}")
