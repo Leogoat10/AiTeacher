@@ -16,6 +16,8 @@ interface ChatMessage {
   content: string
   timestamp: Date
   id: number
+  contextUsed?: boolean
+  contextRounds?: number
 }
 
 interface PresetPrompt {
@@ -25,17 +27,12 @@ interface PresetPrompt {
   systemDefault: boolean
 }
 
-interface PaperHistoryItem {
-  id: number
-  title: string
-  subject: string
-  grade: string
-  examType: string
-  createdAt: string
-}
-
 const LATEX_PLACEHOLDER_PREFIX = 'LATEXFORMULA'
 const UNDERSCORE_PLACEHOLDER_PREFIX = 'UNDERSCOREBLANK'
+const CONTEXT_ROUNDS = 5
+const TASK_POLL_INTERVAL_MS = 1000
+const TASK_POLL_TIMEOUT_MS = 5 * 60 * 1000
+const TASK_POLL_MAX_ATTEMPTS = Math.ceil(TASK_POLL_TIMEOUT_MS / TASK_POLL_INTERVAL_MS)
 const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
 const underscoreStore: Map<string, string> = new Map()
 const apiClient = axios.create({ baseURL: '/api', withCredentials: true })
@@ -113,6 +110,7 @@ const renderMarkdown = (content: string): string => {
 const subject = ref('')
 const grade = ref<string | string[]>('')
 const examType = ref('单元测验')
+const textbookVersion = ref('')
 const durationMinutes = ref(90)
 const totalScore = ref(100)
 const questionTypeCounts = ref<Record<string, number>>({
@@ -124,6 +122,8 @@ const questionTypeCounts = ref<Record<string, number>>({
 })
 const knowledgePoints = ref('')
 const customRequirement = ref('')
+const contextInstruction = ref('')
+const useRecentContext = ref(false)
 const taskStatus = ref<TaskStatus | null>(null)
 const taskErrorMessage = ref('')
 const loading = ref(false)
@@ -137,12 +137,18 @@ const creatingPresetPrompt = ref(false)
 const newPresetTitle = ref('')
 const newPresetContent = ref('')
 
-const paperHistory = ref<PaperHistoryItem[]>([])
+const paperHistory = ref<any[]>([])
 const loadingPaperHistory = ref(false)
 const showHistoryDialog = ref(false)
 const currentPaperId = ref<number | null>(null)
+const deletingPaperId = ref<number | null>(null)
 
 const chatHistory = ref<ChatMessage[]>([])
+const currentConversationId = ref<number | null>(null)
+const creatingConversation = ref(false)
+const loadingHistory = ref(false)
+const historyConversations = ref<Array<{ id: number; createTime: string; title: string }>>([])
+const deletingConversationId = ref<number | null>(null)
 const selectedAiMessageIds = ref<Set<number>>(new Set())
 let messageIdCounter = 0
 
@@ -189,10 +195,119 @@ const educationOptions = [
   }
 ]
 
+const contextModeAvailable = computed(() => !!currentConversationId.value && chatHistory.value.some((item) => item.role === 'ai'))
+const canSubmit = computed(() => !loading.value && (!!currentConversationId.value || !useRecentContext.value))
 const normalizedGrade = computed(() => Array.isArray(grade.value) ? grade.value.join('') : grade.value)
 const totalQuestionCount = computed(() => Object.values(questionTypeCounts.value).reduce((sum, count) => sum + Number(count || 0), 0))
 const aiMessageCount = computed(() => chatHistory.value.filter(item => item.role === 'ai').length)
 const userMessageCount = computed(() => chatHistory.value.filter(item => item.role === 'user').length)
+
+const createNewConversation = async () => {
+  creatingConversation.value = true
+  try {
+    const res = await apiClient.post('/teacher/exam-paper/v1/newConversation')
+    if (res.data.success) {
+      currentConversationId.value = res.data.conversationId
+      chatHistory.value = []
+      selectedAiMessageIds.value = new Set()
+      messageIdCounter = 0
+      ElMessage.success('新对话已创建')
+      return
+    }
+    ElMessage.error(res.data.error || '创建对话失败')
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '创建对话失败')
+  } finally {
+    creatingConversation.value = false
+  }
+}
+
+const fetchHistoryConversations = async () => {
+  loadingHistory.value = true
+  try {
+    const res = await apiClient.get('/teacher/exam-paper/v1/conversations')
+    if (res.data.success) {
+      historyConversations.value = res.data.conversations || []
+      return
+    }
+    ElMessage.error(res.data.error || '获取历史对话失败')
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '获取历史对话失败')
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+const openHistoryDialog = async () => {
+  showHistoryDialog.value = true
+  await fetchHistoryConversations()
+}
+
+const switchToConversation = async (conversationId: number) => {
+  try {
+    const res = await apiClient.get(`/teacher/exam-paper/v1/conversation/${conversationId}`)
+    if (!res.data.success) {
+      ElMessage.error(res.data.error || '切换对话失败')
+      return
+    }
+    currentConversationId.value = conversationId
+    chatHistory.value = []
+    selectedAiMessageIds.value = new Set()
+    messageIdCounter = 0
+    const messages = Array.isArray(res.data.messages) ? res.data.messages : []
+    messages.forEach((item: any) => {
+      const role: 'user' | 'ai' = item.role === 'user' ? 'user' : 'ai'
+      chatHistory.value.push({
+        role,
+        content: item.content || '',
+        timestamp: item.timestamp ? new Date(item.timestamp) : new Date(),
+        id: messageIdCounter++,
+        contextUsed: item.contextUsed,
+        contextRounds: item.contextRounds
+      })
+    })
+    showHistoryDialog.value = false
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '切换对话失败')
+  }
+}
+
+const deleteConversation = async (conversationId: number) => {
+  const target = historyConversations.value.find((item) => item.id === conversationId)
+  if (!target) return
+  try {
+    await ElMessageBox.confirm(`确认删除历史会话「${target.title}」吗？`, '提示', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+
+  deletingConversationId.value = conversationId
+  try {
+    const res = await apiClient.delete(`/teacher/exam-paper/v1/conversation/${conversationId}`)
+    if (!res.data.success) {
+      ElMessage.error(res.data.error || '删除失败')
+      return
+    }
+    historyConversations.value = historyConversations.value.filter((item) => item.id !== conversationId)
+    if (currentConversationId.value === conversationId) {
+      currentConversationId.value = null
+      chatHistory.value = []
+      selectedAiMessageIds.value = new Set()
+      messageIdCounter = 0
+      await createNewConversation()
+    }
+    ElMessage.success('历史会话已删除')
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '删除失败')
+  } finally {
+    deletingConversationId.value = null
+  }
+}
+
 const taskStatusType = computed(() => {
   if (taskStatus.value === 'FAILED') return 'danger'
   if (taskStatus.value === 'SUCCESS') return 'success'
@@ -466,11 +581,6 @@ const fetchPaperHistory = async () => {
   }
 }
 
-const openHistoryDialog = async () => {
-  showHistoryDialog.value = true
-  await fetchPaperHistory()
-}
-
 const loadPaperDetail = async (paperId: number) => {
   try {
     const res = await apiClient.get(`/teacher/exam-paper/v1/${paperId}`)
@@ -492,15 +602,47 @@ const loadPaperDetail = async (paperId: number) => {
   }
 }
 
+const deleteHistoryPaper = async (paperId: number) => {
+  const target = paperHistory.value.find((item) => item.id === paperId)
+  if (!target) return
+  try {
+    await ElMessageBox.confirm(`确认删除历史试卷「${target.title}」吗？`, '提示', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+
+  deletingPaperId.value = paperId
+  try {
+    const res = await apiClient.delete(`/teacher/exam-paper/v1/${paperId}`)
+    if (!res.data.success) {
+      ElMessage.error(res.data.error || '删除失败')
+      return
+    }
+    paperHistory.value = paperHistory.value.filter((item) => item.id !== paperId)
+    if (currentPaperId.value === paperId) {
+      currentPaperId.value = null
+    }
+    ElMessage.success('历史试卷已删除')
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '删除失败')
+  } finally {
+    deletingPaperId.value = null
+  }
+}
+
 const normalizeTaskContent = (result: any): string => {
   if (!result || typeof result !== 'object') return ''
   return result.markdownContent || ''
 }
 
 const pollTaskResult = async (taskId: number) => {
-  const maxAttempts = 60
+  const maxAttempts = TASK_POLL_MAX_ATTEMPTS
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, TASK_POLL_INTERVAL_MS))
     const statusRes = await apiClient.get(`/teacher/exam-paper/v1/tasks/${taskId}`)
     if (!statusRes.data.success) {
       throw new Error(statusRes.data.error || '查询任务状态失败')
@@ -520,28 +662,67 @@ const pollTaskResult = async (taskId: number) => {
       return normalizeTaskContent(statusRes.data.result)
     }
   }
+  const finalStatusRes = await apiClient.get(`/teacher/exam-paper/v1/tasks/${taskId}`)
+  if (!finalStatusRes.data.success) {
+    throw new Error(finalStatusRes.data.error || '查询任务状态失败')
+  }
+  const finalStatus = finalStatusRes.data.status as TaskStatus
+  taskStatus.value = finalStatus
+  if (finalStatus === 'FAILED') {
+    throw new Error(finalStatusRes.data.errorMessage || '试卷生成失败')
+  }
+  if (finalStatus === 'SUCCESS') {
+    if (finalStatusRes.data.paperId) {
+      const detailRes = await apiClient.get(`/teacher/exam-paper/v1/${finalStatusRes.data.paperId}`)
+      if (detailRes.data.success) {
+        return detailRes.data.markdownContent || ''
+      }
+    }
+    return normalizeTaskContent(finalStatusRes.data.result)
+  }
   throw new Error('任务超时，请稍后重试')
 }
 
 const send = async () => {
-  if (!subject.value.trim()) {
-    ElMessage.warning('请输入科目')
+  if (useRecentContext.value && !contextModeAvailable.value) {
+    ElMessage.warning('当前会话暂无历史试卷，无法使用参考上下文模式')
     return
   }
-  if (!normalizedGrade.value.trim()) {
-    ElMessage.warning('请输入年级')
+  if (useRecentContext.value && !contextInstruction.value.trim()) {
+    ElMessage.warning('请输入上下文增量指令')
     return
   }
-  if (!examType.value.trim()) {
-    ElMessage.warning('请输入试卷类型')
-    return
-  }
-  if (totalQuestionCount.value < 1) {
-    ElMessage.warning('请至少设置一种题型数量')
-    return
+  if (!useRecentContext.value) {
+    if (!subject.value.trim()) {
+      ElMessage.warning('请输入科目')
+      return
+    }
+    if (!normalizedGrade.value.trim()) {
+      ElMessage.warning('请输入年级')
+      return
+    }
+    if (!examType.value.trim()) {
+      ElMessage.warning('请输入试卷类型')
+      return
+    }
+    if (!textbookVersion.value.trim()) {
+      ElMessage.warning('请输入教材版本')
+      return
+    }
+    if (totalQuestionCount.value < 1) {
+      ElMessage.warning('请至少设置一种题型数量')
+      return
+    }
   }
 
-  const userMessage = `${subject.value} ${normalizedGrade.value} ${examType.value} (${durationMinutes.value}分钟, ${totalScore.value}分, 共${totalQuestionCount.value}题)`
+  if (!currentConversationId.value) {
+    await createNewConversation()
+    if (!currentConversationId.value) return
+  }
+
+  const userMessage = useRecentContext.value
+    ? `上下文增量指令：${contextInstruction.value.trim()} [关联最近${CONTEXT_ROUNDS}轮上下文]`
+    : `${subject.value} ${normalizedGrade.value} ${examType.value} [${textbookVersion.value}] (${durationMinutes.value}分钟, ${totalScore.value}分, 共${totalQuestionCount.value}题)`
   chatHistory.value.push({ role: 'user', content: userMessage, timestamp: new Date(), id: messageIdCounter++ })
 
   loading.value = true
@@ -549,31 +730,42 @@ const send = async () => {
   taskErrorMessage.value = ''
   try {
     const payload = {
-      subject: subject.value.trim(),
-      grade: normalizedGrade.value.trim(),
-      examType: examType.value.trim(),
-      durationMinutes: durationMinutes.value,
-      totalScore: totalScore.value,
-      questionCount: totalQuestionCount.value,
-      questionTypeCounts: {
+      subject: useRecentContext.value ? null : subject.value.trim(),
+      grade: useRecentContext.value ? null : normalizedGrade.value.trim(),
+      examType: useRecentContext.value ? null : examType.value.trim(),
+      textbookVersion: useRecentContext.value ? null : textbookVersion.value.trim(),
+      durationMinutes: useRecentContext.value ? null : durationMinutes.value,
+      totalScore: useRecentContext.value ? null : totalScore.value,
+      questionCount: useRecentContext.value ? null : totalQuestionCount.value,
+      questionTypeCounts: useRecentContext.value ? null : {
         选择题: Number(questionTypeCounts.value.选择题 || 0),
         填空题: Number(questionTypeCounts.value.填空题 || 0),
         判断题: Number(questionTypeCounts.value.判断题 || 0),
         简答题: Number(questionTypeCounts.value.简答题 || 0),
         解答题: Number(questionTypeCounts.value.解答题 || 0)
       },
-      knowledgePoints: knowledgePoints.value.trim() || null,
-      customRequirement: customRequirement.value.trim() || null
+      knowledgePoints: useRecentContext.value ? null : (knowledgePoints.value.trim() || null),
+      customRequirement: useRecentContext.value ? contextInstruction.value.trim() : (customRequirement.value.trim() || null),
+      conversationId: currentConversationId.value,
+      useContext: useRecentContext.value,
+      contextRounds: CONTEXT_ROUNDS
     }
     const taskRes = await apiClient.post('/teacher/exam-paper/v1/tasks', payload)
     if (!taskRes.data.success) {
       throw new Error(taskRes.data.error || '任务创建失败')
+    }
+    if (taskRes.data.newConversationId !== undefined && taskRes.data.newConversationId !== null) {
+      currentConversationId.value = taskRes.data.newConversationId
+    } else if (taskRes.data.conversationId !== undefined && taskRes.data.conversationId !== null) {
+      currentConversationId.value = taskRes.data.conversationId
     }
 
     const markdownContent = await pollTaskResult(Number(taskRes.data.taskId))
     chatHistory.value.push({
       role: 'ai',
       content: markdownContent || '试卷生成成功，但无可展示内容',
+      contextUsed: useRecentContext.value,
+      contextRounds: CONTEXT_ROUNDS,
       timestamp: new Date(),
       id: messageIdCounter++
     })
@@ -590,7 +782,7 @@ const send = async () => {
 }
 
 onMounted(async () => {
-  await fetchPresetPrompts()
+  await Promise.all([createNewConversation(), fetchPresetPrompts()])
 })
 </script>
 
@@ -603,6 +795,10 @@ onMounted(async () => {
           <p>输入命题需求，一键生成可导出试卷</p>
         </div>
         <div class="panel-actions">
+          <el-button size="small" @click="createNewConversation" :loading="creatingConversation">
+            <el-icon><ChatDotRound /></el-icon>
+            新建
+          </el-button>
           <el-button size="small" @click="openHistoryDialog">历史</el-button>
         </div>
       </header>
@@ -619,99 +815,133 @@ onMounted(async () => {
       </div>
 
       <el-form label-position="top" class="plan-form">
-        <el-form-item label="科目">
-          <el-input v-model="subject" placeholder="例如：数学" :disabled="loading" />
-        </el-form-item>
-        <el-form-item label="年级">
-          <el-cascader
-            v-model="grade"
-            :options="educationOptions"
-            :props="{ expandTrigger: 'hover' }"
-            placeholder="请选择年级"
-            style="width: 100%"
-            :disabled="loading"
-          />
-        </el-form-item>
-        <el-form-item label="试卷类型">
-          <el-input v-model="examType" placeholder="例如：期中测试" :disabled="loading" />
-        </el-form-item>
-
-        <div class="number-grid">
-          <el-form-item label="考试时长(分钟)">
-            <el-input-number v-model="durationMinutes" :min="30" :max="180" :disabled="loading" />
-          </el-form-item>
-          <el-form-item label="总分">
-            <el-input-number v-model="totalScore" :min="20" :max="200" :disabled="loading" />
-          </el-form-item>
-        </div>
-
-        <div class="number-grid">
-          <el-form-item label="选择题数量">
-            <el-input-number v-model="questionTypeCounts['选择题']" :min="0" :max="60" :disabled="loading" />
-          </el-form-item>
-          <el-form-item label="填空题数量">
-            <el-input-number v-model="questionTypeCounts['填空题']" :min="0" :max="60" :disabled="loading" />
-          </el-form-item>
-          <el-form-item label="判断题数量">
-            <el-input-number v-model="questionTypeCounts['判断题']" :min="0" :max="60" :disabled="loading" />
-          </el-form-item>
-          <el-form-item label="简答题数量">
-            <el-input-number v-model="questionTypeCounts['简答题']" :min="0" :max="60" :disabled="loading" />
-          </el-form-item>
-          <el-form-item label="解答题数量">
-            <el-input-number v-model="questionTypeCounts['解答题']" :min="0" :max="60" :disabled="loading" />
-          </el-form-item>
-          <el-form-item label="题量合计">
-            <el-input :model-value="`${totalQuestionCount} 题`" disabled />
-          </el-form-item>
-        </div>
-        <div class="difficulty-hint">默认难度为「中等」。如需改成简单或较难，请在“补充要求”中说明。</div>
-
-        <el-form-item label="重点知识点（选填）">
-          <el-input v-model="knowledgePoints" placeholder="例如：二次函数、方程组、图像应用" :disabled="loading" />
-        </el-form-item>
-
-        <el-form-item label="补充要求（选填）">
-          <el-input
-            v-model="customRequirement"
-            type="textarea"
-            :rows="4"
-            :disabled="loading"
-            placeholder="例如：增加情境题，解析强调易错点"
-          />
-          <div class="preset-prompt-panel">
-            <div class="preset-prompt-header">
-              <span>预设 Prompt</span>
-              <div class="preset-prompt-actions">
-                <el-button size="small" text @click="fetchPresetPrompts" :loading="loadingPresetPrompts">刷新</el-button>
-                <el-button size="small" text type="primary" @click="openAddPresetDialog">新增</el-button>
-              </div>
-            </div>
-            <el-empty v-if="!loadingPresetPrompts && presetPrompts.length === 0" description="暂无预设Prompt" :image-size="56" />
-            <div v-else class="preset-prompt-list">
-              <div v-for="preset in presetPrompts" :key="preset.id" class="preset-prompt-item">
-                <div class="preset-prompt-main">
-                  <div class="preset-prompt-title">
-                    <span>{{ preset.title }}</span>
-                    <el-tag size="small" :type="preset.systemDefault ? 'success' : 'info'" effect="plain">
-                      {{ preset.systemDefault ? '系统默认' : '我的新增' }}
-                    </el-tag>
-                  </div>
-                  <div class="preset-prompt-preview">{{ preset.promptContent }}</div>
-                </div>
-                <div class="preset-prompt-item-actions">
-                  <el-button size="small" text @click="previewPreset(preset)">预览</el-button>
-                  <el-button size="small" text type="primary" @click="applyPresetPrompt(preset)">使用</el-button>
-                  <el-button v-if="!preset.systemDefault" size="small" text type="danger" @click="deletePresetPrompt(preset)">
-                    删除
-                  </el-button>
-                </div>
-              </div>
-            </div>
+        <el-form-item label="上下文关联">
+          <div class="context-settings">
+            <el-switch
+              v-model="useRecentContext"
+              :disabled="loading || !contextModeAvailable"
+              active-text="关联最近上下文"
+              inactive-text="不关联历史上下文"
+            />
+            <el-tag v-if="useRecentContext" size="small" type="info">最近{{ CONTEXT_ROUNDS }}轮</el-tag>
+          </div>
+          <div class="context-settings-tip" v-if="!contextModeAvailable">
+            当前会话暂无历史试卷，暂不可启用参考上下文模式
           </div>
         </el-form-item>
 
-        <el-button type="primary" class="submit-btn" @click="send" :loading="loading">生成试卷</el-button>
+        <template v-if="!useRecentContext">
+          <el-form-item label="科目">
+            <el-input v-model="subject" placeholder="例如：数学" :disabled="loading" />
+          </el-form-item>
+          <el-form-item label="年级">
+            <el-cascader
+              v-model="grade"
+              :options="educationOptions"
+              :props="{ expandTrigger: 'hover' }"
+              placeholder="请选择年级"
+              style="width: 100%"
+              :disabled="loading"
+            />
+          </el-form-item>
+          <el-form-item label="试卷类型">
+            <el-input v-model="examType" placeholder="例如：期中测试" :disabled="loading" />
+          </el-form-item>
+          <el-form-item label="教材版本">
+            <el-input v-model="textbookVersion" placeholder="例如：人教版" :disabled="loading" />
+          </el-form-item>
+
+          <div class="number-grid">
+            <el-form-item label="考试时长(分钟)">
+              <el-input-number v-model="durationMinutes" :min="30" :max="180" :disabled="loading" />
+            </el-form-item>
+            <el-form-item label="总分">
+              <el-input-number v-model="totalScore" :min="20" :max="200" :disabled="loading" />
+            </el-form-item>
+          </div>
+
+          <div class="number-grid">
+            <el-form-item label="选择题数量">
+              <el-input-number v-model="questionTypeCounts['选择题']" :min="0" :max="60" :disabled="loading" />
+            </el-form-item>
+            <el-form-item label="填空题数量">
+              <el-input-number v-model="questionTypeCounts['填空题']" :min="0" :max="60" :disabled="loading" />
+            </el-form-item>
+            <el-form-item label="判断题数量">
+              <el-input-number v-model="questionTypeCounts['判断题']" :min="0" :max="60" :disabled="loading" />
+            </el-form-item>
+            <el-form-item label="简答题数量">
+              <el-input-number v-model="questionTypeCounts['简答题']" :min="0" :max="60" :disabled="loading" />
+            </el-form-item>
+            <el-form-item label="解答题数量">
+              <el-input-number v-model="questionTypeCounts['解答题']" :min="0" :max="60" :disabled="loading" />
+            </el-form-item>
+            <el-form-item label="题量合计">
+              <el-input :model-value="`${totalQuestionCount} 题`" disabled />
+            </el-form-item>
+          </div>
+          <div class="difficulty-hint">默认难度为「中等」。如需改成简单或较难，请在“补充要求”中说明。</div>
+
+          <el-form-item label="重点知识点（选填）">
+            <el-input v-model="knowledgePoints" placeholder="例如：二次函数、方程组、图像应用" :disabled="loading" />
+          </el-form-item>
+
+          <el-form-item label="补充要求（选填）">
+            <el-input
+              v-model="customRequirement"
+              type="textarea"
+              :rows="4"
+              :disabled="loading"
+              placeholder="例如：增加情境题，解析强调易错点"
+            />
+            <div class="preset-prompt-panel">
+              <div class="preset-prompt-header">
+                <span>预设 Prompt</span>
+                <div class="preset-prompt-actions">
+                  <el-button size="small" text @click="fetchPresetPrompts" :loading="loadingPresetPrompts">刷新</el-button>
+                  <el-button size="small" text type="primary" @click="openAddPresetDialog">新增</el-button>
+                </div>
+              </div>
+              <el-empty v-if="!loadingPresetPrompts && presetPrompts.length === 0" description="暂无预设Prompt" :image-size="56" />
+              <div v-else class="preset-prompt-list">
+                <div v-for="preset in presetPrompts" :key="preset.id" class="preset-prompt-item">
+                  <div class="preset-prompt-main">
+                    <div class="preset-prompt-title">
+                      <span>{{ preset.title }}</span>
+                      <el-tag size="small" :type="preset.systemDefault ? 'success' : 'info'" effect="plain">
+                        {{ preset.systemDefault ? '系统默认' : '我的新增' }}
+                      </el-tag>
+                    </div>
+                    <div class="preset-prompt-preview">{{ preset.promptContent }}</div>
+                  </div>
+                  <div class="preset-prompt-item-actions">
+                    <el-button size="small" text @click="previewPreset(preset)">预览</el-button>
+                    <el-button size="small" text type="primary" @click="applyPresetPrompt(preset)">使用</el-button>
+                    <el-button v-if="!preset.systemDefault" size="small" text type="danger" @click="deletePresetPrompt(preset)">
+                      删除
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </el-form-item>
+        </template>
+
+        <template v-else>
+          <el-form-item label="上下文增量指令">
+            <el-input
+              v-model="contextInstruction"
+              placeholder="例如：保持科目不变，增加几道压轴题并提高整体难度"
+              type="textarea"
+              :rows="6"
+              :disabled="loading"
+            />
+          </el-form-item>
+        </template>
+
+        <el-button type="primary" class="submit-btn" @click="send" :loading="loading" :disabled="!canSubmit">
+          生成试卷
+        </el-button>
         <div class="task-panel-error" v-if="taskStatus === 'FAILED'">失败原因：{{ taskErrorMessage || '未知错误' }}</div>
       </el-form>
     </section>
@@ -755,6 +985,10 @@ onMounted(async () => {
               </div>
             </div>
             <el-card :shadow="message.role === 'user' ? 'never' : 'hover'" :class="['message-content', message.role]">
+              <div v-if="message.role === 'ai' && message.contextUsed" class="context-hint">
+                <el-icon><ChatDotRound /></el-icon>
+                本次生成参考了最近 {{ message.contextRounds }} 轮对话上下文
+              </div>
               <template v-if="message.role === 'ai'">
                 <div class="markdown-body" v-html="renderMarkdown(message.content)"></div>
               </template>
@@ -767,23 +1001,33 @@ onMounted(async () => {
       </div>
     </section>
 
-    <el-dialog v-model="showHistoryDialog" title="历史试卷" width="720px">
+    <el-dialog v-model="showHistoryDialog" title="历史对话" width="720px">
       <div class="history-dialog-content">
-        <el-empty v-if="paperHistory.length === 0 && !loadingPaperHistory" description="暂无历史试卷" />
+        <el-empty v-if="historyConversations.length === 0 && !loadingHistory" description="暂无历史对话" />
         <div v-else class="history-list">
           <div
-            v-for="item in paperHistory"
-            :key="item.id"
+            v-for="conversation in historyConversations"
+            :key="conversation.id"
             class="history-item"
-            :class="{ active: item.id === currentPaperId }"
-            @click="loadPaperDetail(item.id)"
+            :class="{ active: conversation.id === currentConversationId }"
           >
-            <el-icon class="history-icon"><ChatDotRound /></el-icon>
-            <div class="history-info">
-              <div class="history-id">{{ item.title }}</div>
-              <div class="history-time">
-                {{ item.subject }} · {{ item.grade }} · {{ item.examType }} · {{ new Date(item.createdAt).toLocaleString() }}
+            <div class="history-item-content" @click="switchToConversation(conversation.id)">
+              <el-icon class="history-icon"><ChatDotRound /></el-icon>
+              <div class="history-info">
+                <div class="history-id">{{ conversation.title }}</div>
+                <div class="history-time">{{ new Date(conversation.createTime).toLocaleString() }}</div>
               </div>
+            </div>
+            <div class="history-actions">
+              <el-button
+                size="small"
+                text
+                type="danger"
+                :loading="deletingConversationId === conversation.id"
+                @click.stop="deleteConversation(conversation.id)"
+              >
+                删除
+              </el-button>
             </div>
           </div>
         </div>
@@ -890,6 +1134,22 @@ onMounted(async () => {
 
 .plan-form {
   margin-top: 8px;
+}
+
+.context-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-settings-tip {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #7c8ba1;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px dashed #d3dce6;
 }
 
 .number-grid {
@@ -1034,6 +1294,16 @@ onMounted(async () => {
   color: #1e293b;
 }
 
+.context-hint {
+  margin-bottom: 12px;
+  color: #2563eb;
+  font-size: 12px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
 :deep(.markdown-body) {
   line-height: 1.85;
   color: #334155;
@@ -1058,6 +1328,14 @@ onMounted(async () => {
   margin: 8px 0;
 }
 
+:deep(.markdown-body blockquote) {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid #93c5fd;
+  background: #f8fbff;
+  color: #475569;
+}
+
 :deep(.fill-blank) {
   letter-spacing: 1.2px;
   color: #111827;
@@ -1076,11 +1354,12 @@ onMounted(async () => {
 
 .history-item {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  cursor: pointer;
   transition: all 0.2s ease;
 }
 
@@ -1094,17 +1373,39 @@ onMounted(async () => {
   background: #f5faff;
 }
 
+.history-item-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+}
+
 .history-icon {
   color: #409eff;
   margin-top: 2px;
 }
 
+.history-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .history-id {
   font-weight: 600;
+  font-size: 14px;
+  color: #1e293b;
 }
 
 .history-time {
-  color: #909399;
+  color: #94a3b8;
   font-size: 12px;
 }
 

@@ -10,6 +10,8 @@ public interface LessonPlanService {
 
     Map<String, Object> getConversations();
 
+    Map<String, Object> deleteConversation(Integer conversationId);
+
     Map<String, Object> listPresetPrompts();
 
     Map<String, Object> createPresetPrompt(String title, String promptContent);

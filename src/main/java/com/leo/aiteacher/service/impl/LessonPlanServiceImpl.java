@@ -151,6 +151,49 @@ public class LessonPlanServiceImpl implements LessonPlanService {
     }
 
     @Override
+    public Map<String, Object> deleteConversation(Integer conversationId) {
+        ensureLessonPlanTaskSchema();
+        Map<String, Object> result = new HashMap<>();
+        TeacherDto teacher = SessionUtils.getCurrentTeacher();
+        if (teacher == null) {
+            result.put("success", false);
+            result.put("error", "未登录");
+            result.put("status", HttpStatus.UNAUTHORIZED.value());
+            return result;
+        }
+        if (conversationId == null) {
+            result.put("success", false);
+            result.put("error", "会话ID不能为空");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+
+        ConversationDto conversation = conversationMapper.getConversationById(conversationId);
+        if (conversation == null) {
+            result.put("success", false);
+            result.put("error", "对话不存在");
+            result.put("status", HttpStatus.NOT_FOUND.value());
+            return result;
+        }
+        if (!conversation.getTeacherId().equals(teacher.getTeacherId())) {
+            result.put("success", false);
+            result.put("error", "无权限删除该对话");
+            result.put("status", HttpStatus.FORBIDDEN.value());
+            return result;
+        }
+        if (hasQuestionHistory(teacher.getTeacherId(), conversationId)) {
+            result.put("success", false);
+            result.put("error", "该会话属于出题历史，不能在教案模块删除");
+            result.put("status", HttpStatus.BAD_REQUEST.value());
+            return result;
+        }
+
+        conversationMapper.deleteConversationById(conversationId);
+        result.put("success", true);
+        return result;
+    }
+
+    @Override
     public Map<String, Object> listPresetPrompts() {
         ensureLessonPlanPromptPresetSchema();
         Map<String, Object> result = new HashMap<>();
@@ -850,7 +893,7 @@ public class LessonPlanServiceImpl implements LessonPlanService {
         JsonNode teachingProcess = requiredArray(root, "teachingProcess");
         String homework = requiredText(root, "homework");
         String assessment = requiredText(root, "assessment");
-        String extensions = requiredText(root, "extensions");
+        String extensions = optionalText(root, "extensions");
 
         int interactionSteps = 0;
         for (JsonNode step : teachingProcess) {
@@ -878,6 +921,7 @@ public class LessonPlanServiceImpl implements LessonPlanService {
 
     private String buildMarkdown(LessonPlanTaskDto task, ParsedLessonPlan parsed) throws Exception {
         StringBuilder builder = new StringBuilder();
+        builder.append("AI生成\n\n");
         builder.append("# ").append(parsed.title()).append("\n\n");
         builder.append("- 科目：").append(task.getSubject()).append("\n");
         builder.append("- 年级：").append(task.getGrade()).append("\n");
@@ -896,7 +940,9 @@ public class LessonPlanServiceImpl implements LessonPlanService {
         appendTeachingProcess(builder, parsed.teachingProcessJson());
         builder.append("\n## 作业设计\n").append(parsed.homework()).append("\n\n");
         builder.append("## 评价方式\n").append(parsed.assessment()).append("\n\n");
-        builder.append("## 拓展建议\n").append(parsed.extensions()).append("\n");
+        builder.append("## 拓展建议\n")
+                .append(parsed.extensions().isBlank() ? "无" : parsed.extensions())
+                .append("\n");
         return builder.toString();
     }
 
@@ -934,6 +980,14 @@ public class LessonPlanServiceImpl implements LessonPlanService {
             throw new RuntimeException("缺少字段: " + field);
         }
         return node.asText().trim();
+    }
+
+    private String optionalText(JsonNode root, String field) {
+        JsonNode node = root.path(field);
+        if (!node.isTextual()) {
+            return "";
+        }
+        return node.asText("").trim();
     }
 
     private JsonNode requiredArray(JsonNode root, String field) {
@@ -1059,7 +1113,7 @@ public class LessonPlanServiceImpl implements LessonPlanService {
                 .append("  ],\n")
                 .append("  \"homework\": \"分层作业（基础/提升/挑战三级）\",\n")
                 .append("  \"assessment\": \"课堂即时检测题+开放题+常见误解预警与纠正策略\",\n")
-                .append("  \"extensions\": \"差异化支持（学困生/资优生/特殊需求）+资源整合建议+生活联系建议\"\n")
+                .append("  \"extensions\": \"可选：差异化支持（学困生/资优生/特殊需求）+资源整合建议+生活联系建议，可留空\"\n")
                 .append("}\n\n")
                 .append("【硬性校验】\n")
                 .append("1) teachingProcess 至少输出 ").append(interactionCount).append(" 个包含 interactionDesign 的环节。\n")

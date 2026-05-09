@@ -21,6 +21,82 @@ public class ExamPaperController {
         this.examPaperService = examPaperService;
     }
 
+    @PostMapping("/newConversation")
+    public ResponseEntity<?> createConversation() {
+        try {
+            Map<String, Object> result = examPaperService.createConversation();
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("创建试卷对话异常", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/conversations")
+    public ResponseEntity<?> getConversations() {
+        try {
+            Map<String, Object> result = examPaperService.getConversations();
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("获取试卷对话列表异常", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @DeleteMapping("/conversation/{conversationId}")
+    public ResponseEntity<?> deleteConversation(@PathVariable Integer conversationId) {
+        try {
+            Map<String, Object> result = examPaperService.deleteConversation(conversationId);
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("删除试卷对话异常", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/conversation/{conversationId}")
+    public ResponseEntity<?> getConversationDetail(@PathVariable Integer conversationId) {
+        try {
+            Map<String, Object> result = examPaperService.getConversationDetail(conversationId);
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("获取试卷对话详情异常", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
     @GetMapping("/preset-prompts")
     public ResponseEntity<?> listPresetPrompts() {
         try {
@@ -98,6 +174,7 @@ public class ExamPaperController {
             String subject = stringValue(requestData.get("subject"));
             String grade = stringValue(requestData.get("grade"));
             String examType = stringValue(requestData.get("examType"));
+            String textbookVersion = stringValue(requestData.get("textbookVersion"));
             Integer durationMinutes = parseOptionalInteger(requestData.get("durationMinutes"));
             Integer totalScore = parseOptionalInteger(requestData.get("totalScore"));
             Integer questionCount = parseOptionalInteger(requestData.get("questionCount"));
@@ -105,10 +182,14 @@ public class ExamPaperController {
             String difficulty = stringValue(requestData.get("difficulty"));
             String knowledgePoints = stringValue(requestData.get("knowledgePoints"));
             String customRequirement = stringValue(requestData.get("customRequirement"));
+            Integer conversationId = parseOptionalInteger(requestData.get("conversationId"));
+            Boolean useContext = requestData.get("useContext") == null ? null : Boolean.valueOf(requestData.get("useContext").toString());
+            Integer contextRounds = parseOptionalInteger(requestData.get("contextRounds"));
 
             Map<String, Object> result = examPaperService.createExamPaperTask(
-                    subject, grade, examType, durationMinutes, totalScore, questionCount,
-                    questionTypeCounts, difficulty, knowledgePoints, customRequirement
+                    subject, grade, examType, textbookVersion, durationMinutes, totalScore, questionCount,
+                    questionTypeCounts, difficulty, knowledgePoints, customRequirement,
+                    conversationId, useContext, contextRounds
             );
             if (Boolean.TRUE.equals(result.get("success"))) {
                 return ResponseEntity.ok(result);

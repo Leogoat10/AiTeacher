@@ -31,6 +31,9 @@ interface PresetPrompt {
 }
 
 const CONTEXT_ROUNDS = 5
+const TASK_POLL_INTERVAL_MS = 1000
+const TASK_POLL_TIMEOUT_MS = 5 * 60 * 1000
+const TASK_POLL_MAX_ATTEMPTS = Math.ceil(TASK_POLL_TIMEOUT_MS / TASK_POLL_INTERVAL_MS)
 const LATEX_PLACEHOLDER_PREFIX = 'LATEXFORMULA'
 const UNDERSCORE_PLACEHOLDER_PREFIX = 'UNDERSCOREBLANK'
 const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
@@ -184,6 +187,7 @@ const creatingConversation = ref(false)
 const loadingHistory = ref(false)
 const showHistoryDialog = ref(false)
 const historyConversations = ref<Array<{ id: number; createTime: string; title: string }>>([])
+const deletingConversationId = ref<number | null>(null)
 const selectedAiMessageIds = ref<Set<number>>(new Set())
 let messageIdCounter = 0
 
@@ -283,6 +287,42 @@ const switchToConversation = async (conversationId: number) => {
     showHistoryDialog.value = false
   } catch (err: any) {
     ElMessage.error(err.response?.data?.error || '切换对话失败')
+  }
+}
+
+const deleteConversation = async (conversationId: number) => {
+  const target = historyConversations.value.find((item) => item.id === conversationId)
+  if (!target) return
+  try {
+    await ElMessageBox.confirm(`确认删除历史会话「${target.title}」吗？`, '提示', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+
+  deletingConversationId.value = conversationId
+  try {
+    const res = await apiClient.delete(`/teacher/lesson-plan/v1/conversation/${conversationId}`)
+    if (!res.data.success) {
+      ElMessage.error(res.data.error || '删除失败')
+      return
+    }
+    historyConversations.value = historyConversations.value.filter((item) => item.id !== conversationId)
+    if (currentConversationId.value === conversationId) {
+      currentConversationId.value = null
+      chatHistory.value = []
+      selectedAiMessageIds.value = new Set()
+      messageIdCounter = 0
+      await createNewConversation()
+    }
+    ElMessage.success('历史会话已删除')
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || '删除失败')
+  } finally {
+    deletingConversationId.value = null
   }
 }
 
@@ -548,9 +588,9 @@ const normalizeTaskContent = (result: any): string => {
 }
 
 const pollTaskResult = async (taskId: number) => {
-  const maxAttempts = 60
+  const maxAttempts = TASK_POLL_MAX_ATTEMPTS
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, TASK_POLL_INTERVAL_MS))
     const statusRes = await apiClient.get(`/teacher/lesson-plan/v1/tasks/${taskId}`)
     if (!statusRes.data.success) {
       throw new Error(statusRes.data.error || '查询任务状态失败')
@@ -569,6 +609,24 @@ const pollTaskResult = async (taskId: number) => {
       }
       return { content: normalizeTaskContent(statusRes.data.result), statusPayload: statusRes.data }
     }
+  }
+  const finalStatusRes = await apiClient.get(`/teacher/lesson-plan/v1/tasks/${taskId}`)
+  if (!finalStatusRes.data.success) {
+    throw new Error(finalStatusRes.data.error || '查询任务状态失败')
+  }
+  const finalStatus = finalStatusRes.data.status as TaskStatus
+  taskStatus.value = finalStatus
+  if (finalStatus === 'FAILED') {
+    throw new Error(finalStatusRes.data.errorMessage || '教案生成失败')
+  }
+  if (finalStatus === 'SUCCESS') {
+    if (finalStatusRes.data.planId) {
+      const detailRes = await apiClient.get(`/teacher/lesson-plan/v1/${finalStatusRes.data.planId}`)
+      if (detailRes.data.success) {
+        return { content: detailRes.data.markdownContent || '', statusPayload: finalStatusRes.data }
+      }
+    }
+    return { content: normalizeTaskContent(finalStatusRes.data.result), statusPayload: finalStatusRes.data }
   }
   throw new Error('任务超时，请稍后在历史对话中查看')
 }
@@ -878,12 +936,24 @@ onMounted(async () => {
             :key="conversation.id"
             class="history-item"
             :class="{ active: conversation.id === currentConversationId }"
-            @click="switchToConversation(conversation.id)"
           >
-            <el-icon class="history-icon"><ChatDotRound /></el-icon>
-            <div class="history-info">
-              <div class="history-id">{{ conversation.title }}</div>
-              <div class="history-time">{{ new Date(conversation.createTime).toLocaleString() }}</div>
+            <div class="history-item-content" @click="switchToConversation(conversation.id)">
+              <el-icon class="history-icon"><ChatDotRound /></el-icon>
+              <div class="history-info">
+                <div class="history-id">{{ conversation.title }}</div>
+                <div class="history-time">{{ new Date(conversation.createTime).toLocaleString() }}</div>
+              </div>
+            </div>
+            <div class="history-actions">
+              <el-button
+                size="small"
+                text
+                type="danger"
+                :loading="deletingConversationId === conversation.id"
+                @click.stop="deleteConversation(conversation.id)"
+              >
+                删除
+              </el-button>
             </div>
           </div>
         </div>
@@ -1199,11 +1269,12 @@ onMounted(async () => {
 
 .history-item {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  cursor: pointer;
   transition: all 0.2s ease;
 }
 
@@ -1215,6 +1286,20 @@ onMounted(async () => {
 .history-item.active {
   border-color: #409eff;
   background: #f5faff;
+}
+
+.history-item-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
 }
 
 .history-icon {

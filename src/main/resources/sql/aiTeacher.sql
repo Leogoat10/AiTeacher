@@ -399,6 +399,7 @@ WHERE NOT EXISTS (
 CREATE TABLE IF NOT EXISTS exam_paper_tasks (
     id                 BIGINT AUTO_INCREMENT PRIMARY KEY,
     teacher_id         INT                                 NOT NULL COMMENT '教师ID',
+    conversation_id    INT                                 NULL COMMENT '会话ID',
     status             VARCHAR(20)                         NOT NULL COMMENT '任务状态：PENDING/RUNNING/SUCCESS/FAILED',
     subject            VARCHAR(100)                        NOT NULL COMMENT '科目',
     grade              VARCHAR(100)                        NOT NULL COMMENT '年级',
@@ -406,6 +407,8 @@ CREATE TABLE IF NOT EXISTS exam_paper_tasks (
     duration_minutes   INT                                 NOT NULL COMMENT '考试时长(分钟)',
     total_score        INT                                 NOT NULL COMMENT '总分',
     question_count     INT                                 NOT NULL COMMENT '题量',
+    context_used       TINYINT(1) DEFAULT 0                NOT NULL COMMENT '是否启用上下文',
+    context_rounds     INT        DEFAULT 5                NOT NULL COMMENT '关联上下文轮次',
     difficulty         VARCHAR(50)                         NOT NULL COMMENT '难度',
     knowledge_points   VARCHAR(500)                        NULL COMMENT '知识点',
     custom_requirement TEXT                                NULL COMMENT '补充要求',
@@ -418,8 +421,12 @@ CREATE TABLE IF NOT EXISTS exam_paper_tasks (
     completed_at       TIMESTAMP                           NULL,
     KEY idx_ept_teacher (teacher_id),
     KEY idx_ept_status (status),
+    KEY idx_ept_conversation (conversation_id),
     CONSTRAINT fk_ept_teacher
         FOREIGN KEY (teacher_id) REFERENCES teachers (teacher_id)
+            ON DELETE CASCADE,
+    CONSTRAINT fk_ept_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversations (id)
             ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

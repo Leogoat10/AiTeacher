@@ -11,6 +11,9 @@ import { Clock, ChatDotRound, Loading } from '@element-plus/icons-vue'
 import 'katex/dist/katex.min.css'
 
 const router = useRouter()
+const TASK_POLL_INTERVAL_MS = 1000
+const TASK_POLL_TIMEOUT_MS = 5 * 60 * 1000
+const TASK_POLL_MAX_ATTEMPTS = Math.ceil(TASK_POLL_TIMEOUT_MS / TASK_POLL_INTERVAL_MS)
 
 // 占位符前缀，用于保护 LaTeX 公式和下划线
 const LATEX_PLACEHOLDER_PREFIX = 'LATEXFORMULA'
@@ -488,7 +491,7 @@ watch(contextModeAvailable, (available) => {
 })
 
 const buildMarkdownFromResult = (questions: any[], issues: any[]) => {
-  const markdownParts: string[] = []
+  const markdownParts: string[] = ['AI生成', '']
   questions.forEach((q: any, idx: number) => {
     markdownParts.push(`${idx + 1}. ${q.stem || ''}`)
     if (Array.isArray(q.options) && q.options.length > 0) {
@@ -711,13 +714,13 @@ const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) 
 
     const taskId = taskRes.data.taskId
     currentTaskId.value = taskId
-    const maxAttempts = 60
+    const maxAttempts = TASK_POLL_MAX_ATTEMPTS
     let attempt = 0
     let finalStatusRes: any = null
 
     while (attempt < maxAttempts) {
       attempt++
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      await new Promise(resolve => setTimeout(resolve, TASK_POLL_INTERVAL_MS))
       const statusRes = await apiClient.get(`/teacher/question/v2/tasks/${taskId}`)
       if (!statusRes.data.success) {
         throw new Error(statusRes.data.error || '查询任务状态失败')
@@ -735,7 +738,19 @@ const submitGenerationTask = async (payload: any, pushRetryUserMessage = false) 
     }
 
     if (!finalStatusRes) {
-      throw new Error('任务超时，请稍后在历史对话中查看结果')
+      const statusRes = await apiClient.get(`/teacher/question/v2/tasks/${taskId}`)
+      if (!statusRes.data.success) {
+        throw new Error(statusRes.data.error || '查询任务状态失败')
+      }
+      const status = statusRes.data.status
+      taskStatus.value = status
+      taskProgress.value = statusProgressMap[status] ?? 40
+      taskStatusText.value = `任务状态：${statusLabelMap[status] || status}`
+      if (status === 'SUCCESS' || status === 'COMPLETED_WITH_WARNINGS' || status === 'FAILED') {
+        finalStatusRes = statusRes.data
+      } else {
+        throw new Error('任务超时，请稍后在历史对话中查看结果')
+      }
     }
 
     if (finalStatusRes.status === 'FAILED') {

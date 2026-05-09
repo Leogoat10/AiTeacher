@@ -46,7 +46,7 @@ public class DeepSeekChatClient {
     public DeepSeekChatClient(RestTemplateBuilder restTemplateBuilder,
                               ObjectMapper objectMapper,
                               @Value("${deepseek.api.timeout.connect-ms:5000}") long connectTimeoutMs,
-                              @Value("${deepseek.api.timeout.read-ms:30000}") long readTimeoutMs) {
+                              @Value("${deepseek.api.timeout.read-ms:300000}") long readTimeoutMs) {
         this.objectMapper = objectMapper;
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofMillis(connectTimeoutMs))

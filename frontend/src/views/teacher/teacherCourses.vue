@@ -580,7 +580,7 @@ onMounted(() => {
 }
 
 .header-actions .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #8fe861 0%, #6cf85d 100%);
   color: white;
   border: none;
   padding: 12px 24px;
@@ -673,7 +673,7 @@ onMounted(() => {
 }
 
 .empty-state .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #83ea66 0%, #8def72 100%);
   color: white;
   border: none;
   padding: 12px 24px;
@@ -911,7 +911,7 @@ onMounted(() => {
 
 .form-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #ffffff;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
@@ -1031,7 +1031,7 @@ onMounted(() => {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #87ea66 0%, #9ae776 100%);
   color: white;
   border: none;
   padding: 10px 20px;

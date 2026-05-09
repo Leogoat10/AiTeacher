@@ -18,6 +18,9 @@ public class ExamPaperTaskDto {
     @TableField("teacher_id")
     private Integer teacherId;
 
+    @TableField("conversation_id")
+    private Integer conversationId;
+
     private String status;
     private String subject;
     private String grade;
@@ -33,6 +36,12 @@ public class ExamPaperTaskDto {
 
     @TableField("question_count")
     private Integer questionCount;
+
+    @TableField("context_used")
+    private Boolean contextUsed;
+
+    @TableField("context_rounds")
+    private Integer contextRounds;
 
     private String difficulty;
 

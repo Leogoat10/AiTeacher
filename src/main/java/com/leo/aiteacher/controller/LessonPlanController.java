@@ -59,6 +59,25 @@ public class LessonPlanController {
         }
     }
 
+    @DeleteMapping("/conversation/{conversationId}")
+    public ResponseEntity<?> deleteConversation(@PathVariable Integer conversationId) {
+        try {
+            Map<String, Object> result = lessonPlanService.deleteConversation(conversationId);
+            if (Boolean.TRUE.equals(result.get("success"))) {
+                return ResponseEntity.ok(result);
+            }
+            int status = result.containsKey("status") ? (int) result.get("status") : 500;
+            return ResponseEntity.status(status).body(result);
+        } catch (Exception e) {
+            logger.error("删除教案对话异常", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "error", "内部错误",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
     @GetMapping("/preset-prompts")
     public ResponseEntity<?> listPresetPrompts() {
         try {

@@ -2,6 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
+import { marked } from 'marked'
+import katex from 'katex'
+import DOMPurify from 'dompurify'
+import 'katex/dist/katex.min.css'
 
 interface Course {
   courseCode: string
@@ -52,6 +56,72 @@ const apiClient = axios.create({
   withCredentials: true
 })
 
+const LATEX_PLACEHOLDER_PREFIX = 'LATEXFORMULA'
+const latexFormulaStore: Map<string, { formula: string; displayMode: boolean }> = new Map()
+
+marked.setOptions({
+  breaks: true,
+  gfm: true
+})
+
+const autoWrapPlainMathExpressions = (text: string, registerInlineFormula: (formula: string) => string): string => {
+  if (!text) return text
+
+  const exprRegex = /([A-Za-zΑ-Ωα-ωσθμλπΔΣΩ][A-Za-z0-9Α-Ωα-ωσθμλπΔΣΩ_]*(?:\([^()\n]{1,40}\))?\s*=\s*[^,，。；;\n]{1,120})/g
+  return text.split('\n').map((line) => {
+    if (!line || line.includes(LATEX_PLACEHOLDER_PREFIX) || line.includes('\\(') || line.includes('\\[') || line.includes('`') || /^\s*([#>*-]|\d+\.)\s+/.test(line)) {
+      return line
+    }
+    return line.replace(exprRegex, (match) => {
+      const normalized = match.trim()
+      const hasMathToken = /[+\-*/^_()]|[Α-Ωα-ωσθμλπΔΣΩ]|e\^\{?[-+]?[A-Za-z0-9]/.test(normalized)
+      return hasMathToken ? registerInlineFormula(normalized) : match
+    })
+  }).join('\n')
+}
+
+const protectLatexFormulas = (text: string): string => {
+  latexFormulaStore.clear()
+  let counter = 0
+  const registerFormula = (formula: string, displayMode: boolean) => {
+    const placeholder = `${LATEX_PLACEHOLDER_PREFIX}${displayMode ? 'DISPLAY' : 'INLINE'}${counter}ENDLATEX`
+    latexFormulaStore.set(placeholder, { formula: formula.trim(), displayMode })
+    counter += 1
+    return placeholder
+  }
+  const registerInlineFormula = (formula: string) => registerFormula(formula, false)
+
+  let replaced = text.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula) => registerFormula(formula, true))
+  replaced = replaced.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula) => registerInlineFormula(formula))
+  replaced = replaced.replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula) => registerFormula(formula, true))
+  replaced = replaced.replace(/\$([^\$\n]+?)\$/g, (match, formula) => (/[A-Za-z\\{}\^_=+\-*/()]/.test(formula) ? registerInlineFormula(formula) : match))
+  return autoWrapPlainMathExpressions(replaced, registerInlineFormula)
+}
+
+const renderProtectedLatex = (html: string): string => {
+  let renderedHtml = html
+  latexFormulaStore.forEach((data, placeholder) => {
+    try {
+      const rendered = katex.renderToString(data.formula, { displayMode: data.displayMode, throwOnError: false, output: 'html' })
+      renderedHtml = renderedHtml.replace(new RegExp(placeholder, 'g'), rendered)
+    } catch {
+      // ignore single formula render failure
+    }
+  })
+  return renderedHtml
+}
+
+const renderMarkdown = (content: string): string => {
+  if (!content) return ''
+  const protectedText = protectLatexFormulas(content)
+  const html = marked(protectedText) as string
+  const withLatex = renderProtectedLatex(html)
+  return DOMPurify.sanitize(withLatex, {
+    ADD_TAGS: ['math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'msqrt', 'mroot', 'mtext', 'annotation', 'munderover', 'mtable', 'mtr', 'mtd'],
+    ADD_ATTR: ['xmlns', 'aria-hidden', 'focusable']
+  })
+}
+
 const loading = ref(false)
 const detailLoading = ref(false)
 const error = ref<string | null>(null)
@@ -98,6 +168,8 @@ const displayAiRecommendation = computed(() => ({
   modelName: '--',
   ...(aiRecommendation.value || {})
 }))
+
+const renderedStudentAiAnalysis = computed(() => renderMarkdown(selectedStudent.value?.aiAnalysis || '暂无AI分析'))
 
 const levelClass = (level: string): string => {
   if (level === '优秀') return 'level-excellent'
@@ -475,7 +547,7 @@ onMounted(() => {
         </div>
         <div class="student-ai-analysis">
           <b>AI分析：</b>
-          <div class="analysis-box">{{ selectedStudent.aiAnalysis || '暂无AI分析' }}</div>
+          <div class="analysis-box" v-html="renderedStudentAiAnalysis"></div>
         </div>
       </div>
   </div>

@@ -470,6 +470,7 @@ public class QuestionGenerationTaskServiceImpl implements QuestionGenerationTask
 
     private String buildMarkdownFromQuestions(JsonNode questions) {
         StringBuilder sb = new StringBuilder();
+        sb.append("AI生成\n\n");
         for (int i = 0; i < questions.size(); i++) {
             JsonNode q = questions.get(i);
             sb.append(i + 1).append(". ").append(q.path("stem").asText("")).append("\n");
